@@ -65,7 +65,6 @@ def notification_handler(sender, data):
         msg_rate = len(QUEUE_TIME) / time_diff
         print(f"[  Stats] IMU rate: {imu_rate:.2f} | MSG rate: {msg_rate:.2f}")
 
-    return
     loop = asyncio.get_running_loop()
     loop.call_soon_threadsafe(QUEUE_WRITE.put_nowait, f"{now} {text}")
 
