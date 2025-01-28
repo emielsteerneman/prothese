@@ -3,6 +3,7 @@
 #include <Arduino_LSM9DS1.h>
 #include <Serial.h>
 #include <stdint.h>
+#include <Wire.h>
 #include <AS5600.h>
 
 BLEService myService("12345678-1234-5678-1234-56789abcdef0");
@@ -11,7 +12,10 @@ BLEService myService("12345678-1234-5678-1234-56789abcdef0");
 BLECharacteristic ArduinoToPc("12345678-1234-5678-1234-56789abcdef1", BLERead | BLENotify, 256);
 BLEStringCharacteristic PcToArduino("12345678-1234-5678-1234-56789abcdef2", BLEWrite, 32);
 
+// Encoder stuff
 AS5600 encoder;
+uint16_t ENCODER_MIN = 80;
+uint16_t ENCODER_MAX = 1100;
 
 const unsigned int LOOP_INTERVAL = 20;
 
@@ -52,10 +56,12 @@ void setup_encoder() {
         Serial.println("Failed to initialize Encoder!");
         while (1);
     }
+    Serial.println("Encoder initialized!");
 }
 
 void setup() {
     Serial.begin(115200);
+    Wire.begin();
 
     delay(5000);
     setup_encoder();
@@ -66,17 +72,27 @@ void setup() {
     delay(1000);
 }
 
+/* ================================== */
+
+float encoder_to_arm_angle(uint16_t encoder_value) {
+    const float ENCODER_TO_ARM_OFFSET_DEGREES = 7.03125;
+
+    float encoder_degrees = encoder_value * AS5600_RAW_TO_DEGREES;
+
+    return encoder_degrees - ENCODER_TO_ARM_OFFSET_DEGREES;
+}
+
 void loop() {
 
     float acceleration[3] = {0, 0, 0};
     float gyroscope[3] = {0, 0, 0};
 
-    boolean imu_accel_read = false;
-    boolean imu_gyro_read = false;
+    // boolean imu_accel_read = false;
+    // boolean imu_gyro_read = false;
     String current_state = "HALTING";
 
-    unsigned int imu_accel_counter = 0;
-    unsigned int imu_gyro_counter = 0;
+    // unsigned int imu_accel_counter = 0;
+    // unsigned int imu_gyro_counter = 0;
 
     unsigned int time_next_loop = 0;
 
@@ -130,13 +146,14 @@ void loop() {
                 IMU.readGyroscope(gyroscope[0], gyroscope[1], gyroscope[2]);
 
                 encoder_value = encoder.readAngle();
+                float arm_angle = encoder_to_arm_angle(encoder_value);
 
                 // Send IMU data to the PC
-                sprintf(send_buffer_string, "%s |A %+.2f %+.2f %+.2f |G %+.2f %+.2f %+.2f |E %d",
+                sprintf(send_buffer_string, "%s |A %+.2f %+.2f %+.2f |G %+.2f %+.2f %+.2f |E %d %.2f",
                     current_state.c_str(),
                     acceleration[0], acceleration[1], acceleration[2],
                     gyroscope[0], gyroscope[1], gyroscope[2],
-                    encoder_value);
+                    encoder_value, arm_angle);
                 ArduinoToPc.writeValue(send_buffer_string, sizeof(send_buffer_string));
 
             }
