@@ -48,7 +48,7 @@ def notification_handler(sender, data):
     # return
 
     text = data.decode('utf-8', errors='ignore')
-    print(f"[Arduino] {len(data)} {text}")
+    print(f"\r[Arduino] {len(data)} {text}        ", end="")
     
 
     now = time.time()
@@ -63,7 +63,7 @@ def notification_handler(sender, data):
         imu_diff = QUEUE_IMU[-1] - QUEUE_IMU[0]
         imu_rate = imu_diff / time_diff
         msg_rate = len(QUEUE_TIME) / time_diff
-        print(f"[  Stats] IMU rate: {imu_rate:.2f} | MSG rate: {msg_rate:.2f}")
+        # print(f"[  Stats] IMU rate: {imu_rate:.2f} | MSG rate: {msg_rate:.2f}")
 
     loop = asyncio.get_running_loop()
     loop.call_soon_threadsafe(QUEUE_WRITE.put_nowait, f"{now} {text}")
