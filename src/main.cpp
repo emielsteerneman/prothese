@@ -3,12 +3,15 @@
 #include <Arduino_LSM9DS1.h>
 #include <Serial.h>
 #include <stdint.h>
+#include <AS5600.h>
 
 BLEService myService("12345678-1234-5678-1234-56789abcdef0");
 
 // https://docs.arduino.cc/libraries/arduinoble/#BLECharacteristic%20Class
 BLECharacteristic ArduinoToPc("12345678-1234-5678-1234-56789abcdef1", BLERead | BLENotify, 256);
 BLEStringCharacteristic PcToArduino("12345678-1234-5678-1234-56789abcdef2", BLEWrite, 32);
+
+AS5600 encoder;
 
 const unsigned int LOOP_INTERVAL = 20;
 
@@ -43,9 +46,19 @@ void setup_imu() {
     }
 }
 
+void setup_encoder() {
+    Serial.println("Beginning Encoder!");
+    if (!encoder.begin()) {
+        Serial.println("Failed to initialize Encoder!");
+        while (1);
+    }
+}
+
 void setup() {
     Serial.begin(115200);
 
+    delay(5000);
+    setup_encoder();
     delay(1000);
     setup_imu();
     delay(1000);
@@ -66,6 +79,8 @@ void loop() {
     unsigned int imu_gyro_counter = 0;
 
     unsigned int time_next_loop = 0;
+
+    uint16_t encoder_value = 0;
 
     // Check if the PC to connect via bluetooth
     BLEDevice central = BLE.central();
@@ -114,14 +129,15 @@ void loop() {
                 IMU.readAcceleration(acceleration[0], acceleration[1], acceleration[2]);
                 IMU.readGyroscope(gyroscope[0], gyroscope[1], gyroscope[2]);
 
+                encoder_value = encoder.readAngle();
+
                 // Send IMU data to the PC
-                sprintf(send_buffer_string, "%s |A %+.2f %+.2f %+.2f |G %+.2f %+.2f %+.2f",
+                sprintf(send_buffer_string, "%s |A %+.2f %+.2f %+.2f |G %+.2f %+.2f %+.2f |E %d",
                     current_state.c_str(),
                     acceleration[0], acceleration[1], acceleration[2],
-                    gyroscope[0], gyroscope[1], gyroscope[2]);
+                    gyroscope[0], gyroscope[1], gyroscope[2],
+                    encoder_value);
                 ArduinoToPc.writeValue(send_buffer_string, sizeof(send_buffer_string));
-
-
 
             }
 
