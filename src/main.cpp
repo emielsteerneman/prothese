@@ -1,4 +1,4 @@
-// Arduino
+// libraries
 #include <ArduinoBLE.h>
 #include <Arduino_LSM9DS1.h>
 #include <Serial.h>
@@ -7,10 +7,22 @@
 #include <AS5600.h>
 #include <AccelStepper.h>
 
+// define pins
+#define MOTOR_STEP_PIN 3
+#define MOTOR_DIR_PIN 4
+#define MOTOR_ENABLE_PIN 5
+
+// motor object
+AccelStepper stepper(AccelStepper::DRIVER, MOTOR_STEP_PIN, MOTOR_DIR_PIN); 
+
+// encoder object
+AS5600 encoder;
+
+// define states
 enum Target {
     NOTHING,
-    STRETCHED, // 0 degrees
-    BENT // 90 degrees
+    STRETCHED, // 10 degrees
+    BENT // 80 degrees
 };
 
 enum State {
@@ -19,6 +31,7 @@ enum State {
     REACHED
 };
 
+// mapping from enum to string for debugging
 static const char* TARGETS[] = {
     "NOTHING",
     "STRETCHED",
@@ -31,34 +44,26 @@ static const char* STATES[] = {
     "REACHED"
 };
 
-// Encoder stuff
-AS5600 encoder;
+// global variables 
+const uint32_t LOOP_INTERVAL = 20; // in ms
+const float MAX_SPEED = 1500.0; //7500.0
+const float ACCELERATION = 200.0; //100
+const float ERROR_MARGIN_ANGLE = 2.0;
+uint8_t currentTarget = Target::NOTHING;
+uint8_t currentState = State::HALTING;
+float speed = 7500.0;
 
-// Motor stuff
-#define MOTOR_STEP_PIN 3
-#define MOTOR_DIR_PIN 4
-#define MOTOR_ENABLE_PIN 5
-AccelStepper stepper(AccelStepper::DRIVER, MOTOR_STEP_PIN, MOTOR_DIR_PIN);
 
-
-// Control stuff
-const unsigned int LOOP_INTERVAL = 20;
-uint8_t CURRENT_TARGET = Target::NOTHING;
-uint8_t CURRENT_STATE = State::HALTING;
-
-// Bluetooth stuff
-BLEService myService("12345678-1234-5678-1234-56789abcdef0");
+// BlueTooth service and characteristics
+BLEService myService("12345678-1234-5678-1234-56789abcdef0"); // service UUID
 // https://docs.arduino.cc/libraries/arduinoble/#BLECharacteristic%20Class
-BLECharacteristic ArduinoToPc("12345678-1234-5678-1234-56789abcdef1", BLERead | BLENotify, 256);
-BLEStringCharacteristic PcToArduino("12345678-1234-5678-1234-56789abcdef2", BLEWrite, 32);
+BLECharacteristic ArduinoToPc("12345678-1234-5678-1234-56789abcdef1", BLERead | BLENotify, 256); // read and notify UUID
+BLEStringCharacteristic PcToArduino("12345678-1234-5678-1234-56789abcdef2", BLEWrite, 32); // write UUID
 
-// Log stuff
+// data buffer
 char send_buffer_string[256];
-uint8_t send_buffer_floats[256];
 
-
-
-
+// setup functions
 void setup_bluetooth() {
     Serial.println("Beginning BLE!");
     if (!BLE.begin()) {
@@ -100,8 +105,8 @@ void setup_motor(){
     Serial.println("Beginning Motor!");
 
     stepper.setPinsInverted(false, true);
-    stepper.setMaxSpeed(7500.0);
-    stepper.setAcceleration(100.0);
+    stepper.setMaxSpeed(MAX_SPEED); 
+    stepper.setAcceleration(ACCELERATION);
 
     pinMode(MOTOR_ENABLE_PIN, OUTPUT);
     digitalWrite(MOTOR_ENABLE_PIN, LOW);
@@ -109,6 +114,24 @@ void setup_motor(){
     Serial.println("Motor initialized!");
 }
 
+// encoder functions
+float encoder_to_arm_angle(uint16_t encoder_value) {
+    const float ENCODER_TO_ARM_OFFSET_DEGREES = 7.03125;
+
+    float encoder_degrees = encoder_value * AS5600_RAW_TO_DEGREES;
+
+    return encoder_degrees - ENCODER_TO_ARM_OFFSET_DEGREES;
+}
+
+float target_to_arm_angle(uint8_t target){
+    if(target == Target::STRETCHED) 
+        return 10;
+    if(target == Target::BENT) 
+        return 80;
+    return 45;
+}
+
+// setup, runs once
 void setup() {
     Serial.begin(115200);
     Wire.begin();
@@ -123,113 +146,83 @@ void setup() {
     setup_bluetooth();
 
     Serial.println("Setup done!");
-
-    
-
-    // float speedtogoat = 7500.0f;
-    // while(1){
-    //     stepper.setSpeed(speedtogoat);
-    //     for(int i = 0; i < 100000; i++)
-    //     {
-    //         stepper.runSpeed();
-    //         // delayMicroseconds(1);
-    //     }
-    //     speedtogoat = -speedtogoat;
-    // }
-
 }
 
-/* ================================== */
-
-float encoder_to_arm_angle(uint16_t encoder_value) {
-    const float ENCODER_TO_ARM_OFFSET_DEGREES = 7.03125;
-
-    float encoder_degrees = encoder_value * AS5600_RAW_TO_DEGREES;
-
-    return encoder_degrees - ENCODER_TO_ARM_OFFSET_DEGREES;
-}
-
-float target_to_arm_angle(uint8_t target){
-    if(target == Target::STRETCHED) return 10;
-    if(target == Target::BENT) return 80;
-    return 0;
-}
-
+// continuous loop
 void loop() {
 
+    // initialization variables
     float acceleration[3] = {0, 0, 0};
     float gyroscope[3] = {0, 0, 0};
-
-    String current_state = "HALTING";
-
-    unsigned int time_next_loop = 0;
-
+    uint32_t timestamp_next_loop = 0;
     uint16_t encoder_value = 0;
     float angle_error = 0;
 
-    // Check if the PC to connect via bluetooth
+   // String current_state = "HALTING";
+
+    // Check if the Arduino is wirelessly connected to the PC via bluetooth
     BLEDevice central = BLE.central();
 
-    // If the Arduino is wirelessly connected to the PC via bluetooth
     if (central) {
         Serial.println("Connected to PC!");
         
-        time_next_loop = millis() + LOOP_INTERVAL;
+        // timestamp
+        timestamp_next_loop = millis() + LOOP_INTERVAL;
 
         // While the bluetooth connection is active
         while (central.connected()) {
             
-            // Read any input from the PC
+            // Read any input from the PC/user
             if (PcToArduino.written()) {
                 String received = PcToArduino.value();
                 Serial.print("Received from central: ");
                 Serial.println(received);
                 
                 if(received == "STRETCHED") {
-                    CURRENT_TARGET = Target::STRETCHED;
-                    CURRENT_STATE = State::MOVING;
-                }else
-                if(received == "BENT") {
-                    CURRENT_TARGET = Target::BENT;
-                    CURRENT_STATE = State::MOVING;
+                    currentTarget = Target::STRETCHED;
+                    currentState = State::MOVING;
+                }
+                else if(received == "BENT") {
+                    currentTarget = Target::BENT;
+                    currentState = State::MOVING;
                 }
             }
 
-            stepper.runSpeed();
-            // delayMicroseconds(10);
+            stepper.run();
 
             // CONTROL LOOP
-            if (time_next_loop < millis()) {
-                while(time_next_loop < millis()) {
-                    time_next_loop += LOOP_INTERVAL;
+            if (timestamp_next_loop <= millis()) {
+                while(timestamp_next_loop <= millis()) {
+                    timestamp_next_loop += LOOP_INTERVAL;
                 }
 
-                // This assumes that the IMU is always available
+                // read acc and gyr, assuming new data is available
                 IMU.readAcceleration(acceleration[0], acceleration[1], acceleration[2]);
                 IMU.readGyroscope(gyroscope[0], gyroscope[1], gyroscope[2]);
 
+                // determime absolute encoder angle
                 encoder_value = encoder.readAngle();
                 float arm_angle = encoder_to_arm_angle(encoder_value);
 
                 // MOTOR CONTROL
-                float target_angle = target_to_arm_angle(CURRENT_TARGET);
+                float target_angle = target_to_arm_angle(currentTarget);
                 angle_error = target_angle - arm_angle;
-                if(CURRENT_TARGET != Target::NOTHING &&  2 < fabs(angle_error)) {
-                    CURRENT_STATE = State::MOVING;
+                if(currentTarget != Target::NOTHING &&  ERROR_MARGIN_ANGLE < fabs(angle_error)) {
+                    currentState = State::MOVING;
                     if(angle_error < 0) {
-                        stepper.setSpeed(-7500.0f);
+                        stepper.setSpeed(-speed);
                     } else {
-                        stepper.setSpeed(7500.0f);
+                        stepper.setSpeed(speed);
                     }
                 }else{
-                    CURRENT_STATE = State::REACHED;
-                    CURRENT_TARGET = Target::NOTHING;
+                    currentTarget = Target::NOTHING;
+                    currentState = State::REACHED;
                     stepper.setSpeed(0.0f);
                 }
 
-                // Send IMU data to the PC
+                // Send data to the PC
                 sprintf(send_buffer_string, "%s -> %s |M %.2f |A %+.2f %+.2f %+.2f |G %+.3f %+.3f %+.3f |E %d %.3f",
-                    TARGETS[CURRENT_TARGET], STATES[CURRENT_STATE],
+                    TARGETS[currentTarget], STATES[currentState],
                     angle_error,
                     acceleration[0], acceleration[1], acceleration[2],
                     gyroscope[0], gyroscope[1], gyroscope[2],
@@ -237,21 +230,6 @@ void loop() {
                 ArduinoToPc.writeValue(send_buffer_string, sizeof(send_buffer_string));
 
             }
-
-            // if (millis() - lastSendTime > SEND_INTERVAL) {
-            //     lastSendTime += SEND_INTERVAL;
-            //     aX += 0.1;
-            //     aY += 1;
-            //     aZ -= 2;
-                
-            //     // copy float to char buffer
-            //     memcpy(send_buffer_floats, &aX, sizeof(aX));
-            //     memcpy(send_buffer_floats + sizeof(aX), &aY, sizeof(aY));
-            //     memcpy(send_buffer_floats + sizeof(aX) + sizeof(aY), &aZ, sizeof(aZ));
-
-            //     ArduinoToPc.writeValue(send_buffer_floats, 12);
-
-            // }
         }
     }
 }
