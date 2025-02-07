@@ -45,13 +45,14 @@ static const char* STATES[] = {
 };
 
 // global variables 
-const uint32_t LOOP_INTERVAL = 20; // in ms
-const float MAX_SPEED = 1500.0; //7500.0
-const float ACCELERATION = 200.0; //100
+const uint32_t LOOP_INTERVAL = 100; // in ms
+const float MAX_SPEED = 17900.0; //7500.0
+const float ACCELERATION = 50000.0; //100
 const float ERROR_MARGIN_ANGLE = 2.0;
+const long STEPS_PER_REV = 200*16;
 uint8_t currentTarget = Target::NOTHING;
 uint8_t currentState = State::HALTING;
-float speed = 7500.0;
+float speed = 17900.0;
 
 
 // BlueTooth service and characteristics
@@ -149,87 +150,178 @@ void setup() {
 }
 
 // continuous loop
-void loop() {
 
-    // initialization variables
+void loop() {
+    // Initialization variables
     float acceleration[3] = {0, 0, 0};
     float gyroscope[3] = {0, 0, 0};
     uint32_t timestamp_next_loop = 0;
     uint16_t encoder_value = 0;
     float angle_error = 0;
 
-   // String current_state = "HALTING";
-
-    // Check if the Arduino is wirelessly connected to the PC via bluetooth
+    // Check if the Arduino is wirelessly connected to the PC via Bluetooth
     BLEDevice central = BLE.central();
 
     if (central) {
         Serial.println("Connected to PC!");
-        
-        // timestamp
+
+        // Timestamp
         timestamp_next_loop = millis() + LOOP_INTERVAL;
 
-        // While the bluetooth connection is active
+        // While the Bluetooth connection is active
         while (central.connected()) {
-            
-            // Read any input from the PC/user
+
+            // Read input from the PC/user
             if (PcToArduino.written()) {
                 String received = PcToArduino.value();
                 Serial.print("Received from central: ");
                 Serial.println(received);
-                
-                if(received == "STRETCHED") {
+
+                if (received == "STRETCHED") {
                     currentTarget = Target::STRETCHED;
                     currentState = State::MOVING;
-                }
-                else if(received == "BENT") {
+                    stepper.moveTo(STEPS_PER_REV);  // Set a new movement target
+                } 
+                else if (received == "BENT") {
                     currentTarget = Target::BENT;
                     currentState = State::MOVING;
+                    stepper.moveTo(-STEPS_PER_REV);
                 }
             }
 
-            stepper.run();
-
             // CONTROL LOOP
             if (timestamp_next_loop <= millis()) {
-                while(timestamp_next_loop <= millis()) {
+                while (timestamp_next_loop <= millis()) {
                     timestamp_next_loop += LOOP_INTERVAL;
                 }
 
-                // read acc and gyr, assuming new data is available
+                // Read IMU data
                 IMU.readAcceleration(acceleration[0], acceleration[1], acceleration[2]);
                 IMU.readGyroscope(gyroscope[0], gyroscope[1], gyroscope[2]);
 
-                // determime absolute encoder angle
+                // Determine absolute encoder angle
                 encoder_value = encoder.readAngle();
                 float arm_angle = encoder_to_arm_angle(encoder_value);
 
                 // MOTOR CONTROL
                 float target_angle = target_to_arm_angle(currentTarget);
                 angle_error = target_angle - arm_angle;
-                if(currentTarget != Target::NOTHING &&  ERROR_MARGIN_ANGLE < fabs(angle_error)) {
-                    currentState = State::MOVING;
-                    if(angle_error < 0) {
-                        stepper.setSpeed(-speed);
-                    } else {
-                        stepper.setSpeed(speed);
+
+                // If not at target, move motor
+                if (currentTarget != Target::NOTHING && ERROR_MARGIN_ANGLE < fabs(angle_error)) {
+                    if (stepper.distanceToGo() == 0) {  // Set target only once
+                        if (angle_error < 0) {
+                            stepper.moveTo(-STEPS_PER_REV);
+                        } else {
+                            stepper.moveTo(STEPS_PER_REV);
+                        }
                     }
-                }else{
+                } 
+                else {
                     currentTarget = Target::NOTHING;
                     currentState = State::REACHED;
-                    stepper.setSpeed(0.0f);
+                    stepper.stop();  // Gracefully stop motor
                 }
 
                 // Send data to the PC
                 sprintf(send_buffer_string, "%s -> %s |M %.2f |A %+.2f %+.2f %+.2f |G %+.3f %+.3f %+.3f |E %d %.3f",
-                    TARGETS[currentTarget], STATES[currentState],
-                    angle_error,
-                    acceleration[0], acceleration[1], acceleration[2],
-                    gyroscope[0], gyroscope[1], gyroscope[2],
-                    encoder_value, arm_angle);
+                        TARGETS[currentTarget], STATES[currentState],
+                        angle_error,
+                        acceleration[0], acceleration[1], acceleration[2],
+                        gyroscope[0], gyroscope[1], gyroscope[2],
+                        encoder_value, arm_angle);
                 ArduinoToPc.writeValue(send_buffer_string, sizeof(send_buffer_string));
-
             }
+
+            // **Always run stepper!**
+            stepper.run();  
         }
     }
 }
+
+// void loop() {
+
+//     // initialization variables
+//     float acceleration[3] = {0, 0, 0};
+//     float gyroscope[3] = {0, 0, 0};
+//     uint32_t timestamp_next_loop = 0;
+//     uint16_t encoder_value = 0;
+//     float angle_error = 0;
+
+//    // String current_state = "HALTING";
+
+//     // Check if the Arduino is wirelessly connected to the PC via bluetooth
+//     BLEDevice central = BLE.central();
+
+//     if (central) {
+//         Serial.println("Connected to PC!");
+        
+//         // timestamp
+//         timestamp_next_loop = millis() + LOOP_INTERVAL;
+
+//         // While the bluetooth connection is active
+//         while (central.connected()) {
+            
+//             // Read any input from the PC/user
+//             if (PcToArduino.written()) {
+//                 String received = PcToArduino.value();
+//                 Serial.print("Received from central: ");
+//                 Serial.println(received);
+                
+//                 if(received == "STRETCHED") {
+//                     currentTarget = Target::STRETCHED;
+//                     currentState = State::MOVING;
+//                 }
+//                 else if(received == "BENT") {
+//                     currentTarget = Target::BENT;
+//                     currentState = State::MOVING;
+//                 }
+//             }
+//             if (stepper.distanceToGo() != 0) {
+//                 stepper.run();
+//             }
+
+//             // CONTROL LOOP
+//             if (timestamp_next_loop <= millis()) {
+//                 while(timestamp_next_loop <= millis()) {
+//                     timestamp_next_loop += LOOP_INTERVAL;
+//                 }
+
+//                 // read acc and gyr, assuming new data is available
+//                 IMU.readAcceleration(acceleration[0], acceleration[1], acceleration[2]);
+//                 IMU.readGyroscope(gyroscope[0], gyroscope[1], gyroscope[2]);
+
+//                 // determime absolute encoder angle
+//                 encoder_value = encoder.readAngle();
+//                 float arm_angle = encoder_to_arm_angle(encoder_value);
+
+//                 // MOTOR CONTROL
+//                 float target_angle = target_to_arm_angle(currentTarget);
+//                 angle_error = target_angle - arm_angle;
+//                 if(currentTarget != Target::NOTHING &&  ERROR_MARGIN_ANGLE < fabs(angle_error)) {
+//                     currentState = State::MOVING;
+//                     if(angle_error < 0) {
+//                         stepper.moveTo(-STEPS_PER_REV);
+//                     } else {
+//                         stepper.moveTo(STEPS_PER_REV);
+
+//                     }
+//                 }else{
+//                     currentTarget = Target::NOTHING;
+//                     currentState = State::REACHED;
+//                     stepper.setSpeed(0.0f);
+//                 }
+
+//                 // Send data to the PC
+//                 sprintf(send_buffer_string, "%s -> %s |M %.2f |A %+.2f %+.2f %+.2f |G %+.3f %+.3f %+.3f |E %d %.3f",
+//                     TARGETS[currentTarget], STATES[currentState],
+//                     angle_error,
+//                     acceleration[0], acceleration[1], acceleration[2],
+//                     gyroscope[0], gyroscope[1], gyroscope[2],
+//                     encoder_value, arm_angle);
+//                 ArduinoToPc.writeValue(send_buffer_string, sizeof(send_buffer_string));
+
+//             }
+//         }
+//     }
+// }
