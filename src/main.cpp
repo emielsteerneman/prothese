@@ -2,7 +2,7 @@
 #include <ArduinoBLE.h>
 #include <Arduino_LSM9DS1.h>
 #include <Serial.h>
-#include <stdint.h>
+#include "stdint.h"
 #include <Wire.h>
 #include <AS5600.h>
 #include <AccelStepper.h>
@@ -28,7 +28,8 @@ enum Target {
 enum State {
     HALTING,
     MOVING,
-    REACHED
+    REACHED,
+    EMERGENCY_STOP
 };
 
 // mapping from enum to string for debugging
@@ -41,11 +42,12 @@ static const char* TARGETS[] = {
 static const char* STATES[] = {
     "HALTING",
     "MOVING",
-    "REACHED"
+    "REACHED",
+    "EMERGENCY_STOP"
 };
 
 // global variables 
-const uint32_t LOOP_INTERVAL = 100; // in ms
+const uint32_t LOOP_INTERVAL = 20; // in ms
 const float MAX_SPEED = 17900.0; //7500.0
 const float ACCELERATION = 50000.0; //100
 const float ERROR_MARGIN_ANGLE = 2.0;
@@ -156,7 +158,8 @@ void loop() {
     float acceleration[3] = {0, 0, 0};
     float gyroscope[3] = {0, 0, 0};
     uint32_t timestamp_next_loop = 0;
-    uint16_t encoder_value = 0;
+    uint16_t current_encoder_value = 0;
+    float current_arm_angle = 0.;
     float angle_error = 0;
 
     // Check if the Arduino is wirelessly connected to the PC via Bluetooth
@@ -180,12 +183,12 @@ void loop() {
                 if (received == "STRETCHED") {
                     currentTarget = Target::STRETCHED;
                     currentState = State::MOVING;
-                    stepper.moveTo(STEPS_PER_REV);  // Set a new movement target
+                    // stepper.moveTo(-999999);  // Set a new movement target
                 } 
                 else if (received == "BENT") {
                     currentTarget = Target::BENT;
                     currentState = State::MOVING;
-                    stepper.moveTo(-STEPS_PER_REV);
+                    // stepper.moveTo(999999);
                 }
             }
 
@@ -200,21 +203,20 @@ void loop() {
                 IMU.readGyroscope(gyroscope[0], gyroscope[1], gyroscope[2]);
 
                 // Determine absolute encoder angle
-                encoder_value = encoder.readAngle();
-                float arm_angle = encoder_to_arm_angle(encoder_value);
+                current_encoder_value = encoder.readAngle();
+                current_arm_angle = encoder_to_arm_angle(current_encoder_value);
 
                 // MOTOR CONTROL
                 float target_angle = target_to_arm_angle(currentTarget);
-                angle_error = target_angle - arm_angle;
+                angle_error = target_angle - current_arm_angle;
 
                 // If not at target, move motor
                 if (currentTarget != Target::NOTHING && ERROR_MARGIN_ANGLE < fabs(angle_error)) {
-                    if (stepper.distanceToGo() == 0) {  // Set target only once
-                        if (angle_error < 0) {
-                            stepper.moveTo(-STEPS_PER_REV);
-                        } else {
-                            stepper.moveTo(STEPS_PER_REV);
-                        }
+                    // if (stepper.distanceToGo() == 0) {  // Set target only once
+                    if (angle_error < 0) {
+                        stepper.setSpeed(-1000);
+                    } else {
+                        stepper.setSpeed(1000);
                     }
                 } 
                 else {
@@ -223,13 +225,20 @@ void loop() {
                     stepper.stop();  // Gracefully stop motor
                 }
 
+                if(current_arm_angle < 7 || 83 < current_arm_angle){
+                    currentState = State::EMERGENCY_STOP;
+                    stepper.setSpeed(0.0f);
+                    stepper.stop();
+                }
+
                 // Send data to the PC
-                sprintf(send_buffer_string, "%s -> %s |M %.2f |A %+.2f %+.2f %+.2f |G %+.3f %+.3f %+.3f |E %d %.3f",
-                        TARGETS[currentTarget], STATES[currentState],
-                        angle_error,
-                        acceleration[0], acceleration[1], acceleration[2],
-                        gyroscope[0], gyroscope[1], gyroscope[2],
-                        encoder_value, arm_angle);
+                sprintf(send_buffer_string, "%s -> %s |DTG %d |E %.2f |A %+.2f %+.2f %+.2f |G %+.3f %+.3f %+.3f |° %d %.3f",
+                    TARGETS[currentTarget], STATES[currentState],
+                    stepper.distanceToGo(),
+                    angle_error,
+                    acceleration[0], acceleration[1], acceleration[2],
+                    gyroscope[0], gyroscope[1], gyroscope[2],
+                    current_encoder_value, current_arm_angle);
                 ArduinoToPc.writeValue(send_buffer_string, sizeof(send_buffer_string));
             }
 
