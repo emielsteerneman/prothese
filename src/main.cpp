@@ -7,13 +7,15 @@
 #include <AS5600.h>
 #include <AccelStepper.h>
 
+#include "emiel_motor_test.h"
+
 // define pins
 #define MOTOR_STEP_PIN 3
 #define MOTOR_DIR_PIN 4
 #define MOTOR_ENABLE_PIN 5
 
 // motor object
-AccelStepper stepper(AccelStepper::DRIVER, MOTOR_STEP_PIN, MOTOR_DIR_PIN); 
+// AccelStepper stepper(AccelStepper::DRIVER, MOTOR_STEP_PIN, MOTOR_DIR_PIN); 
 
 // encoder object
 AS5600 encoder;
@@ -108,9 +110,9 @@ void setup_encoder() {
 void setup_motor(){
     Serial.println("Beginning Motor!");
 
-    stepper.setPinsInverted(false, true);
-    stepper.setMaxSpeed(MAX_SPEED); 
-    stepper.setAcceleration(ACCELERATION);
+    // stepper.setPinsInverted(false, true);
+    // stepper.setMaxSpeed(MAX_SPEED); 
+    // stepper.setAcceleration(ACCELERATION);
 
     pinMode(MOTOR_ENABLE_PIN, OUTPUT);
     digitalWrite(MOTOR_ENABLE_PIN, LOW);
@@ -140,6 +142,8 @@ void setup() {
     Serial.begin(115200);
     Wire.begin();
 
+    run_emiel_motor_test();
+
     delay(1000);
     setup_encoder();
     delay(1000);
@@ -151,109 +155,6 @@ void setup() {
 
     Serial.println("Setup done!");
 }
-
-// continuous loop
-
-// WORKS, BUT IS VERY SHAKY AND NOT RIGHT.
-
-// void loop() {
-//     // Initialization variables
-//     float acceleration[3] = {0, 0, 0};
-//     float gyroscope[3] = {0, 0, 0};
-//     uint32_t timestamp_next_loop = 0;
-//     uint16_t current_encoder_value = 0;
-//     float current_arm_angle = 0.;
-//     float angle_error = 0;
-
-//     // Check if the Arduino is wirelessly connected to the PC via Bluetooth
-//     BLEDevice central = BLE.central();
-
-//     if (central) {
-//         Serial.println("Connected to PC!");
-
-//         // Timestamp
-//         timestamp_next_loop = millis() + LOOP_INTERVAL;
-
-//         // While the Bluetooth connection is active
-//         while (central.connected()) {
-
-
-//             // CONTROL LOOP
-//             if (timestamp_next_loop <= millis()) {
-//                 while (timestamp_next_loop <= millis()) {
-//                     timestamp_next_loop += LOOP_INTERVAL;
-//                 }
-
-//                 // Read input from the PC/user
-//                 if (PcToArduino.written()) {
-//                     String received = PcToArduino.value();
-//                     Serial.print("Received from central: ");
-//                     Serial.println(received);
-
-//                     if (received == "STRETCHED") {
-//                         currentTarget = Target::STRETCHED;
-//                         currentState = State::MOVING;
-//                         // stepper.moveTo(-999999);  // Set a new movement target
-//                     } 
-//                     else if (received == "BENT") {
-//                         currentTarget = Target::BENT;
-//                         currentState = State::MOVING;
-//                         // stepper.moveTo(999999);
-//                     }
-//                 }
-
-//                 // Read IMU data
-//                 IMU.readAcceleration(acceleration[0], acceleration[1], acceleration[2]);
-//                 IMU.readGyroscope(gyroscope[0], gyroscope[1], gyroscope[2]);
-
-//                 // Determine absolute encoder angle
-//                 current_encoder_value = encoder.readAngle();
-//                 current_arm_angle = encoder_to_arm_angle(current_encoder_value);
-
-//                 // MOTOR CONTROL
-//                 float target_angle = target_to_arm_angle(currentTarget);
-//                 angle_error = target_angle - current_arm_angle;
-
-//                 // If not at target, move motor
-//                 if (currentTarget != Target::NOTHING && ERROR_MARGIN_ANGLE < fabs(angle_error)) {
-//                     // if (stepper.distanceToGo() == 0) {  // Set target only once
-//                     if (angle_error < 0) {
-//                         digitalWrite(MOTOR_ENABLE_PIN, LOW);
-//                         stepper.setSpeed(-speed);
-//                     } else {
-//                         digitalWrite(MOTOR_ENABLE_PIN, LOW);
-//                         stepper.setSpeed(speed);
-//                     }
-//                 } 
-//                 else {
-//                     currentTarget = Target::NOTHING;
-//                     currentState = State::REACHED;
-//                     stepper.stop();  // Gracefully stop motor
-//                     digitalWrite(MOTOR_ENABLE_PIN, HIGH);
-//                 }
-
-//                 if(current_arm_angle < 7 || 83 < current_arm_angle){
-//                     currentState = State::EMERGENCY_STOP;
-//                     stepper.setSpeed(0.0f);
-//                     stepper.stop();
-//                     digitalWrite(MOTOR_ENABLE_PIN, HIGH);
-//                 }
-
-//                 // Send data to the PC
-//                 sprintf(send_buffer_string, "%s -> %s |E %.2f |A %+.2f %+.2f %+.2f |G %+.3f %+.3f %+.3f |° %d %.3f",
-//                     TARGETS[currentTarget], STATES[currentState],
-//                     angle_error,
-//                     acceleration[0], acceleration[1], acceleration[2],
-//                     gyroscope[0], gyroscope[1], gyroscope[2],
-//                     current_encoder_value, current_arm_angle);
-//                 ArduinoToPc.writeValue(send_buffer_string, sizeof(send_buffer_string));
-//             }
-
-//             // **Always run stepper!**
-//             stepper.runSpeed();  
-//         }
-//     }
-// }
 
 void loop() {
     float acceleration[3] = {0, 0, 0};
@@ -309,20 +210,20 @@ void loop() {
                 if(new_target_received && currentTarget != Target::NOTHING){
                     currentState = State::MOVING;
                     digitalWrite(MOTOR_ENABLE_PIN, LOW);
-                    stepper.move(angle_error * STEPS_PER_DEGREE);
+                    // stepper.move(angle_error * STEPS_PER_DEGREE);
                 }
 
                 if (target_reached) {
                     // currentTarget = Target::NOTHING;
                     currentState = State::REACHED;
-                    stepper.stop();
+                    // stepper.stop();
                     digitalWrite(MOTOR_ENABLE_PIN, HIGH);
                 }
 
                 if (current_arm_angle < 7 || 83 < current_arm_angle) {
                     // currentTarget = Target::NOTHING;
                     currentState = State::EMERGENCY_STOP;
-                    stepper.stop();
+                    // stepper.stop();
                     digitalWrite(MOTOR_ENABLE_PIN, HIGH);
                 }
 
@@ -340,7 +241,7 @@ void loop() {
 
             for(uint8_t wer = 0; wer < 100; wer++){
                 loop_counter++;
-                stepper.run();
+                // stepper.run();
                 delayMicroseconds(1);
             }
         }
