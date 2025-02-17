@@ -52,15 +52,6 @@ float gyrValues[numRounds][3]; // Stores gx, gy, gz for stability check
 
 
 
-/* HERE IS ALL THE SEND-THINGS-TO-PC STUFF */
-// data buffer
-char send_buffer_string[256];
-
-
-
-/* END OF SEND-THINGS-TO-PC STUFF */
-
-
 
 void setup_imu() {
     Serial.println("Beginning IMU!");
@@ -266,57 +257,36 @@ float encoder_to_arm_angle(uint16_t encoder_value) {
 }
 
 void algorithm1(float gx, float current_arm_angle){ // beter om de variabelen globaal te maken?
-    float target_arm_angle=5;
-    float angle_error = 0;
-    float rollMahony = 0;
+    float target_arm_angle = 5;
     bool gxTriggered = false;
 
-    target_arm_angle = constrain(target_arm_angle, 0, 90);
+    if (gx > 200){ // m/s2
+        gxTriggered = true;  // Set the flag to true
+    }
 
-    rollMahony = mahony.getRoll(); // Fetch roll value
-
-    if (gx > 200) // m/s2
-        {
-            gxTriggered = true;  // Set the flag to true
+    if (gxTriggered){
+        if (current_arm_angle > 5) {
+            target_arm_angle = 5;
         }
-
-    if (gxTriggered) 
-        {
-            if (current_arm_angle > 5) 
-            {
-                target_arm_angle = 5;
-            } 
-            else 
-            {
-            gxTriggered = false;
-            }
-        } 
-    else 
-        {
-            if (rollMahony < -20 && current_arm_angle < 90)//degrees
-            {
-                target_arm_angle += 0.5;
-            }
+    } else {
+        if (mahony.getRoll() < -20 && current_arm_angle < 90 /* degrees */) {
+            target_arm_angle += 0.5;
         }
+    }
 
-    angle_error = target_arm_angle - current_arm_angle;
-
+    float angle_error = target_arm_angle - current_arm_angle;
     bool target_reached = fabs(angle_error) < ERROR_MARGIN_ANGLE;
 
-    if (target_reached)
-    {
+    if (target_reached){
         stepper.stop();
         digitalWrite(MOTOR_ENABLE_PIN, HIGH);
-    }
-    else
-    {
+    } else {
         digitalWrite(MOTOR_ENABLE_PIN, LOW);
         stepper.move(angle_error * STEPS_PER_DEGREE);
     }
 
-    if (current_arm_angle < 4 || 91 < current_arm_angle) 
-    {
-                stepper.stop();
+    if (current_arm_angle < 4 || 91 < current_arm_angle) {
+        stepper.stop();
         digitalWrite(MOTOR_ENABLE_PIN, HIGH);
     }
 }
@@ -343,10 +313,7 @@ void wait_for_user_to_give_L_R(){
         // User indicated Left
         if (received == "L") {
             isLeftProsthetic = true;
-            
             send_text_to_pc("User has chosen Left!");
-            // sprintf(send_buffer_string, "TEXTUser has chosen Left!");
-            // ArduinoToPc.writeValue(send_buffer_string, sizeof(send_buffer_string));
             
             float leftTransformationMatrix[3][3] = {
                 {0, 0, -1}, // X flips, Z-axis effect applied
@@ -359,9 +326,6 @@ void wait_for_user_to_give_L_R(){
         }  
         else if (received == "R") {
             isLeftProsthetic = false;
-            
-            // sprintf(send_buffer_string, "TEXTUser has chosen Right!");
-            // ArduinoToPc.writeValue(send_buffer_string, sizeof(send_buffer_string));
             send_text_to_pc("User has chosen Right!");
 
             float rightTransformationMatrix[3][3] = {
@@ -383,14 +347,9 @@ void setup() {
     Serial.begin(115200);
     Wire.begin();
 
-    delay(1000);
-    setup_bluetooth();
-    delay(1000);
-
-    /* THIS PART ESTABLISHES THE BLUETOOTH CONNECTION BETWEEN THE ARDUINO AND THE PYTHON CODE */
-    connect_bluetooth_to_pc();
-    /* THE CONNECTION IS NOW MADE BETWEEN THE ARDUINO AND THE PYTHON CODE */
-
+    delay(500); setup_bluetooth();
+    delay(500); connect_bluetooth_to_pc();
+    
     Serial.println("Waiting for user to give L or R");
     delay(100); wait_for_user_to_give_L_R();
     delay(500); setup_encoder();
@@ -425,33 +384,33 @@ void loop() {
                     // do nothing. keep checking.
                 }; 
 
+                // Read the IMU data
                 IMU.readAcceleration(acc[0], acc[1], acc[2]);
-                transform_acc_data(acc[0], acc[1], acc[2]);
-
                 IMU.readGyroscope(gyr[0], gyr[1], gyr[2]);
+                // Transform the IMU data
+                transform_acc_data(acc[0], acc[1], acc[2]);
                 transform_gyr_data(gyr[0], gyr[1], gyr[2]);
-                             
+                // Update the Mahony filter
                 mahony.updateIMU(gyr[0], gyr[1], gyr[2], acc[0], acc[1], acc[2]);
-
+                // Get the quaternion values
                 mahony.getQuaternion(q0, q1, q2, q3);
-
+                // Drift prevention
                 drift_prevention(q0, q1, q2, q3, acc[0], acc[1], acc[2], gyr[0], gyr[1], gyr[2]);
+
 
                 current_encoder_value = encoder.readAngle();
                 current_arm_angle = encoder_to_arm_angle(current_encoder_value);
-                current_arm_angle = constrain(current_arm_angle, 0, 90);
 
                 algorithm1(gyr[0], current_arm_angle);
                 float rollMahony = mahony.getRoll(); // Fetch roll value
                 
-                send_data_to_pc_f("L %d |E %.2f |A %+.2f %+.2f %+.2f |G %+.3f %+.3f %+.3f | %d => %.3f° |R %.3f",
-                loop_counter, 
-                angle_error,
-                acc[0], acc[1], acc[2],
-                gyr[0], gyr[1], gyr[2],
-                current_encoder_value, current_arm_angle,
-                rollMahony);
-                // ArduinoToPc.writeValue(send_buffer_string, sizeof(send_buffer_string));
+                send_data_to_pc_f("L %d |E %.2f |A %+.2f %+.2f %+.2f |G %+.3f %+.3f %+.3f |C %d => %.3f° |R %.3f",
+                /* L */ loop_counter, 
+                /* E */ angle_error,
+                /* A */ acc[0], acc[1], acc[2],
+                /* G */ gyr[0], gyr[1], gyr[2],
+                /* C */ current_encoder_value, current_arm_angle,
+                /* R */ rollMahony);
             }
 
             stepper.run();
