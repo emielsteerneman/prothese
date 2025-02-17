@@ -1,11 +1,18 @@
+// VRAGEN:  - waar moeten welke variabelen geïniteerd worden? in of buiten loop?
+//          - Hoe kan ik Mahony toevoegen? libraries downloaden geeft issues?
+//          - wat doet memcpy ook alweer?
+
 // libraries
 #include <ArduinoBLE.h>
 #include <Arduino_LSM9DS1.h>
 #include <Serial.h>
-#include "stdint.h"
 #include <Wire.h>
 #include <AS5600.h>
 #include <AccelStepper.h>
+#include <MahonyAHRS.h>
+
+#include "stdint.h"
+#include "IMUCalibration.h"
 
 // define pins
 #define MOTOR_STEP_PIN 3
@@ -18,56 +25,39 @@ AccelStepper stepper(AccelStepper::DRIVER, MOTOR_STEP_PIN, MOTOR_DIR_PIN);
 // encoder object
 AS5600 encoder;
 
-// define states
-enum Target {
-    NOTHING,
-    STRETCHED, // 10 degrees
-    BENT // 80 degrees
-};
-
-enum State {
-    HALTING,
-    MOVING,
-    REACHED,
-    EMERGENCY_STOP
-};
-
-// mapping from enum to string for debugging
-static const char* TARGETS[] = {
-    "NOTHING",
-    "STRETCHED",
-    "BENT"
-};
-
-static const char* STATES[] = {
-    "HALTING",
-    "MOVING",
-    "REACHED",
-    "EMERGENCY_STOP"
-};
+// Mahony object
+Mahony mahony;
 
 // global variables 
 const uint32_t LOOP_INTERVAL = 100; // in ms
-const float MAX_SPEED = 17900.0;//17900.0; //7500.0
+const int numReadings = 150;
+const int numRounds = 40;    // Number of rounds to store quaternion values
+const float MAX_SPEED = 17900.0;
 const float ACCELERATION = 50000.0;//50000.0; //100
 const float ERROR_MARGIN_ANGLE = 2.0;
-const float STEPS_PER_DEGREE = 10666.67;//1000.0;//8.89;//0.555;//200.0;//
-//const long STEPS_PER_REV = 200*16;
-uint8_t currentTarget = Target::NOTHING;
-uint8_t currentState = State::HALTING;
-float speed = 17900.0; //17900
-
+const float STEPS_PER_DEGREE = 10666.67;
+const float eta = 0.005f;    // Tolerance value for floating-point comparison
+const float epsilon = 0.01; // Threshold for determining stability
+bool isLeftProsthetic = false;
+bool stable = false;           // Flag to determine if values are stable for stability check
+int roundCount = 0;            // Counter for rounds for stability check
+float transformationMatrix[3][3]; // Will be set based on input
+float ax_offset = 0, ay_offset = 0, az_offset = 0; // initialize offset values
+float gx_offset = 0, gy_offset = 0, gz_offset = 0; // initialize offset values
+float q0Old = 0, q1Old = 0, q2Old = 0, q3Old = 0; // initialise previous value for stability check
+float accValues[numRounds][3]; // Stores ax, ay, az for stability check
+float gyrValues[numRounds][3]; // Stores gx, gy, gz for stability check
 
 // BlueTooth service and characteristics
 BLEService myService("12345678-1234-5678-1234-56789abcdef0"); // service UUID
 // https://docs.arduino.cc/libraries/arduinoble/#BLECharacteristic%20Class
 BLECharacteristic ArduinoToPc("12345678-1234-5678-1234-56789abcdef1", BLERead | BLENotify, 256); // read and notify UUID
 BLEStringCharacteristic PcToArduino("12345678-1234-5678-1234-56789abcdef2", BLEWrite, 32); // write UUID
+BLEDevice central;
 
 // data buffer
 char send_buffer_string[256];
 
-// setup functions
 void setup_bluetooth() {
     Serial.println("Beginning BLE!");
     if (!BLE.begin()) {
@@ -94,6 +84,23 @@ void setup_imu() {
         Serial.println("Failed to initialize IMU!");
         while (1);
     }
+    Serial.println("Press 'y' to start IMU calibration");
+    while (1)
+    {
+      if (Serial.available() > 0)
+      {
+        String input = Serial.readStringUntil('\n');
+        input.trim();
+        if (input == "y")
+        {
+          Serial.println("Calibrating IMU...");
+          delay(1000);
+          calibrateIMU(numReadings, ax_offset, ay_offset, az_offset, gx_offset, gy_offset, gz_offset);
+          Serial.println("Calibration complete.");
+          break;
+        }
+      }
+    }
 }
 
 void setup_encoder() {
@@ -118,7 +125,156 @@ void setup_motor(){
     Serial.println("Motor initialized!");
 }
 
-// encoder functions
+void transform_acc_data(float ax, float ay, float az){
+    ax -= ax_offset + 1; // include gravitational constant
+    ay -= ay_offset;
+    az -= az_offset;
+
+    float axTransformed = transformationMatrix[0][0] * ax + transformationMatrix[0][1] * ay + transformationMatrix[0][2] * az;
+    float ayTransformed = transformationMatrix[1][0] * ax + transformationMatrix[1][1] * ay + transformationMatrix[1][2] * az;
+    float azTransformed = transformationMatrix[2][0] * ax + transformationMatrix[2][1] * ay + transformationMatrix[2][2] * az;
+
+    ax = axTransformed;
+    ay = ayTransformed;
+    az = azTransformed;
+}
+
+void transform_gyr_data(float gx, float gy, float gz){
+    gx -= gx_offset; // / GYRO_SENSITIVITY;
+    gy -= gy_offset; // / GYRO_SENSITIVITY;
+    gz -= gz_offset; // / GYRO_SENSITIVITY;
+
+    float gxTransformed = transformationMatrix[0][0] * gx + transformationMatrix[0][1] * gy + transformationMatrix[0][2] * gz;
+    float gyTransformed = transformationMatrix[1][0] * gx + transformationMatrix[1][1] * gy + transformationMatrix[1][2] * gz;
+    float gzTransformed = transformationMatrix[2][0] * gx + transformationMatrix[2][1] * gy + transformationMatrix[2][2] * gz;
+
+    gx = gxTransformed;
+    gy = gyTransformed;
+    gz = gzTransformed;
+}
+
+void drift_prevention(float q0, float q1, float q2, float q3, float ax, float ay, float az, float gx, float gy, float gz){
+    if ((q0 == q0Old) && (q1 == q1Old) && (q2 == q2Old))
+    {
+    q3 = q3Old;
+    }
+    else
+    {
+      // Check if az is approximately 1g and reset quaternion if so
+      if (fabs(az - 1.0f) < eta)
+      {        
+        //  Store the quaternion values in the array
+        accValues[roundCount][0] = ax;
+        accValues[roundCount][1] = ay;
+        accValues[roundCount][2] = az;
+  
+        gyrValues[roundCount][0] = gx;
+        gyrValues[roundCount][1] = gy;
+        gyrValues[roundCount][2] = gz;
+        roundCount++;
+        if (roundCount >= numRounds)
+        {
+          // Calculate the average of the stored quaternion values
+          float avg_ax = 0, avg_ay = 0, avg_az = 0;
+          float avg_gx = 0, avg_gy = 0, avg_gz = 0;
+          for (int i = 0; i < numRounds; i++)
+          {
+            avg_ax += accValues[i][0];
+            avg_ay += accValues[i][1];
+            avg_az += accValues[i][2];
+  
+            avg_gx += gyrValues[i][0];
+            avg_gy += gyrValues[i][1];
+            avg_gz += gyrValues[i][2];
+          }
+          avg_ax /= numRounds;
+          avg_ay /= numRounds;
+          avg_az /= numRounds;
+  
+          avg_gx /= numRounds;
+          avg_gy /= numRounds;
+          avg_gz /= numRounds;
+  
+          // Check for stability within a certain range (for example, within epsilon)
+          stable = true; // Assume stable unless we find a discrepancy
+          for (int i = 0; i < numRounds; i++)
+          {
+            if (fabs(accValues[i][0] - avg_ax) > epsilon ||
+                fabs(accValues[i][1] - avg_ay) > epsilon ||
+                fabs(accValues[i][2] - avg_az) > epsilon ||
+                fabs(gyrValues[i][0] - avg_gx) > epsilon ||
+                fabs(gyrValues[i][1] - avg_gy) > epsilon ||
+                fabs(gyrValues[i][2] - avg_gz) > epsilon)
+            {
+              stable = false; // Not stable if any value deviates
+              break;
+            }
+          }
+          // If stable, use these values to adjust the offsets
+          if (stable)
+          {
+            ax_offset = avg_ax; // Update accelerometer offsets
+            ay_offset = avg_ay;
+            az_offset = avg_az - 1.0f; // Since az should be close to 1g when vertical
+  
+            gx_offset = avg_gx; // Update gyroscope offsets
+            gy_offset = avg_gy;
+            gz_offset = avg_gz;
+          }
+  
+          // Reset the round count after processing
+          roundCount = 0;
+        }
+      }
+      // check if ay is approximately 1g, set constraints if so (2 possible cases)
+      else if (fabs(ay - 1.0f) < eta)
+      {
+        roundCount = 0;
+  
+        // Apply different thresholds based on left or right prosthetic
+        if (!isLeftProsthetic) // Right prosthetic
+        {
+          if ((q0 > 0.71) && (q1 > 0.71) && (q2 < 0) && (q3 < 0))
+          {
+            q0 = 0.71f;
+            q1 = 0.71f;
+            q2 = 0.0f;
+            q3 = 0.0f;
+          }
+          else if ((q0 < 0.5) && (q1 < 0.5) && (q2 > 0.5) && (q3 > 0.5))
+          {
+            q0 = 0.5f;
+            q1 = 0.5f;
+            q2 = 0.5f;
+            q3 = 0.5f;
+          }
+        }
+        else // Left prosthetic
+        {
+          if ((q0 > 0.71) && (q1 < -0.71) && (q2 > 0) && (q3 < 0))
+          {
+            q0 = 0.71f;
+            q1 = -0.71f;
+            q2 = 0.0f;
+            q3 = 0.0f;
+          }
+          else if ((q0 < 0.5) && (q1 > -0.5) && (q2 < -0.5) && (q3 > 0.5))
+          {
+            q0 = 0.5f;
+            q1 = -0.5f;
+            q2 = -0.5f;
+            q3 = 0.5f;
+          }
+          roundCount = 0;
+        }
+      }
+    }
+    q0Old = q0;
+    q1Old = q1;
+    q2Old = q2;
+    q3Old = q3;
+}
+
 float encoder_to_arm_angle(uint16_t encoder_value) {
     const float ENCODER_TO_ARM_OFFSET_DEGREES = 7.03125;
 
@@ -127,12 +283,110 @@ float encoder_to_arm_angle(uint16_t encoder_value) {
     return encoder_degrees - ENCODER_TO_ARM_OFFSET_DEGREES;
 }
 
-float target_to_arm_angle(uint8_t target){
-    if(target == Target::STRETCHED) 
-        return 10;
-    if(target == Target::BENT) 
-        return 80;
-    return 45;
+void algorithm1(float gx, float current_arm_angle){ // beter om de variabelen globaal te maken?
+    float target_arm_angle=5;
+    float angle_error = 0;
+    float rollMahony = 0;
+    bool gxTriggered = false;
+
+    target_arm_angle = constrain(target_arm_angle, 0, 90);
+
+    rollMahony = mahony.getRoll(); // Fetch roll value
+
+    if (gx > 200) // m/s2
+        {
+            gxTriggered = true;  // Set the flag to true
+        }
+
+    if (gxTriggered) 
+        {
+            if (current_arm_angle > 5) 
+            {
+                target_arm_angle = 5;
+            } 
+            else 
+            {
+            gxTriggered = false;
+            }
+        } 
+    else 
+        {
+            if (rollMahony < -20 && current_arm_angle < 90)//degrees
+            {
+                target_arm_angle += 0.5;
+            }
+        }
+
+    angle_error = target_arm_angle - current_arm_angle;
+
+    bool target_reached = fabs(angle_error) < ERROR_MARGIN_ANGLE;
+
+    if (target_reached)
+    {
+        stepper.stop();
+        digitalWrite(MOTOR_ENABLE_PIN, HIGH);
+    }
+    else
+    {
+        digitalWrite(MOTOR_ENABLE_PIN, LOW);
+        stepper.move(angle_error * STEPS_PER_DEGREE);
+    }
+
+    if (current_arm_angle < 4 || 91 < current_arm_angle) 
+    {
+                stepper.stop();
+        digitalWrite(MOTOR_ENABLE_PIN, HIGH);
+    }
+}
+
+void wait_for_user_to_give_L_R(){
+    // This needs the bluetooth to be running
+    while(true){
+        while(!central.connected()){
+            // do nothing. keep checking.
+        }; 
+
+        // Check if we have input from the user. If not, continue
+        if( !PcToArduino.written() )
+            continue;
+
+        // We received something from the user! Read it.
+        String received = PcToArduino.value();
+
+        // User indicated Left
+        if (received == "L") {
+            isLeftProsthetic = true;
+            
+            printf(send_buffer_string, "User has chosen Left!");
+            ArduinoToPc.writeValue(send_buffer_string, sizeof(send_buffer_string));
+            
+            float leftTransformationMatrix[3][3] = {
+                {0, 0, -1}, // X flips, Z-axis effect applied
+                {0, -1, 0}, // Y flips, Z-axis effect applied
+                {-1, 0, 0}  // Z remains the same
+            };
+            // Copy left matrix into transformationMatrix
+            memcpy(transformationMatrix, leftTransformationMatrix, sizeof(leftTransformationMatrix));
+            break;
+        }  
+        else if (received == "R") {
+            isLeftProsthetic = false;
+            
+            printf(send_buffer_string, "User has chosen Right!");
+            ArduinoToPc.writeValue(send_buffer_string, sizeof(send_buffer_string));
+
+            float rightTransformationMatrix[3][3] = {
+                {0, 0, 1},
+                {0, 1, 0},
+                {-1, 0, 0}};
+            // Copy right matrix into transformationMatrix
+            memcpy(transformationMatrix, rightTransformationMatrix, sizeof(rightTransformationMatrix));
+            break;
+        }
+        else{
+            // Neither L nor R... keep waiting for valid input
+        }
+    }
 }
 
 // setup, runs once
@@ -141,33 +395,46 @@ void setup() {
     Wire.begin();
 
     delay(1000);
+    setup_bluetooth();
+    delay(1000);
+    Serial.println("now waiting for connection");
+    while(!central){
+        central = BLE.central();
+    }
+    Serial.println("Connection made!");
+
+    // Ask if the user is using a left or right elbow prosthetic
+    printf(send_buffer_string, "Do you have a left (L) or right (R) elbow prosthetic? Enter 'L' or 'R':");
+    ArduinoToPc.writeValue(send_buffer_string, sizeof(send_buffer_string));
+
+    wait_for_user_to_give_L_R();
+    
+    delay(1000);
     setup_encoder();
     delay(1000);
     setup_imu();
     delay(1000);
     setup_motor();
-    delay(1000);
-    setup_bluetooth();
 
-    Serial.println("Setup done!");
+    printf(send_buffer_string, "Setup done!");
+    ArduinoToPc.writeValue(send_buffer_string, sizeof(send_buffer_string));
+
+    mahony.begin(50);
 }
 
 // continuous loop
-
 void loop() {
-    float acceleration[3] = {0, 0, 0};
-    float gyroscope[3] = {0, 0, 0};
+    float acc[3] = {0, 0, 0};
+    float gyr[3] = {0, 0, 0};
     uint32_t timestamp_next_loop = 0;
     uint16_t current_encoder_value = 0;
     float current_arm_angle = 0.;
     float angle_error = 0;
-
+    float q0, q1, q2, q3;
     uint32_t loop_counter = 0;
 
-    BLEDevice central = BLE.central();
-
     if (central) {
-        Serial.println("Connected to PC!");
+        // Serial.println("Connected to PC!");
         timestamp_next_loop = millis() + LOOP_INTERVAL;
 
         while (true) {
@@ -176,162 +443,38 @@ void loop() {
                     timestamp_next_loop += LOOP_INTERVAL;
                 }
 
-                while(!central.connected());
+                while(!central.connected()){
+                    // do nothing. keep checking.
+                }; 
 
-                bool new_target_received = false;
+                IMU.readAcceleration(acc[0], acc[1], acc[2]);
+                transform_acc_data(acc[0], acc[1], acc[2]);
 
-                if (PcToArduino.written()) {
-                    String received = PcToArduino.value();
-                    Serial.print("Received from central: ");
-                    Serial.println(received);
+                IMU.readGyroscope(gyr[0], gyr[1], gyr[2]);
+                transform_gyr_data(gyr[0], gyr[1], gyr[2]);
+                             
+                mahony.updateIMU(gyr[0], gyr[1], gyr[2], acc[0], acc[1], acc[2]);
 
-                    if (received == "STRETCHED") {
-                        currentTarget = Target::STRETCHED;
-                        currentState = State::MOVING;
-                        new_target_received = true;
-                    } else if (received == "BENT") {
-                        currentTarget = Target::BENT;
-                        currentState = State::MOVING;
-                        new_target_received = true;
-                    }
-                }
+                mahony.getQuaternion(q0, q1, q2, q3);
 
-                IMU.readAcceleration(acceleration[0], acceleration[1], acceleration[2]);
-                IMU.readGyroscope(gyroscope[0], gyroscope[1], gyroscope[2]);
-                
+                drift_prevention(q0, q1, q2, q3, acc[0], acc[1], acc[2], gyr[0], gyr[1], gyr[2]);
+
                 current_encoder_value = encoder.readAngle();
                 current_arm_angle = encoder_to_arm_angle(current_encoder_value);
-                float target_angle = target_to_arm_angle(currentTarget);
-                angle_error = target_angle - current_arm_angle;
-                bool target_reached = fabs(angle_error) < ERROR_MARGIN_ANGLE;
+                current_arm_angle = constrain(current_arm_angle, 0, 90);
 
-                if(new_target_received && currentTarget != Target::NOTHING){
-                    currentState = State::MOVING;
-                    digitalWrite(MOTOR_ENABLE_PIN, LOW);
-                    stepper.move(angle_error * STEPS_PER_DEGREE);
-                }
-
-                if (target_reached) {
-                    // currentTarget = Target::NOTHING;
-                    currentState = State::REACHED;
-                    stepper.stop();
-                    digitalWrite(MOTOR_ENABLE_PIN, HIGH);
-                }
-
-                if (current_arm_angle < 7 || 83 < current_arm_angle) {
-                    // currentTarget = Target::NOTHING;
-                    currentState = State::EMERGENCY_STOP;
-                    stepper.stop();
-                    digitalWrite(MOTOR_ENABLE_PIN, HIGH);
-                }
-
-                sprintf(send_buffer_string, "%s -> %s |L %d |E %.2f |A %+.2f %+.2f %+.2f |G %+.3f %+.3f %+.3f |° %d %.3f",
-                        TARGETS[currentTarget], STATES[currentState],
-                        loop_counter, 
-                        angle_error,
-                        acceleration[0], acceleration[1], acceleration[2],
-                        gyroscope[0], gyroscope[1], gyroscope[2],
-                        current_encoder_value, current_arm_angle);
-                ArduinoToPc.writeValue(send_buffer_string, sizeof(send_buffer_string));
-
-                loop_counter = 0;
-            }
-
-            for(uint8_t wer = 0; wer < 100; wer++){
-                loop_counter++;
-                stepper.run();
-                delayMicroseconds(1);
-            }
-        }
-    }
-}
-
-
-
-
-// void loop() {
-
-//     // initialization variables
-//     float acceleration[3] = {0, 0, 0};
-//     float gyroscope[3] = {0, 0, 0};
-//     uint32_t timestamp_next_loop = 0;
-//     uint16_t encoder_value = 0;
-//     float angle_error = 0;
-
-//    // String current_state = "HALTING";
-
-//     // Check if the Arduino is wirelessly connected to the PC via bluetooth
-//     BLEDevice central = BLE.central();
-
-//     if (central) {
-//         Serial.println("Connected to PC!");
-        
-//         // timestamp
-//         timestamp_next_loop = millis() + LOOP_INTERVAL;
-
-//         // While the bluetooth connection is active
-//         while (central.connected()) {
-            
-//             // Read any input from the PC/user
-//             if (PcToArduino.written()) {
-//                 String received = PcToArduino.value();
-//                 Serial.print("Received from central: ");
-//                 Serial.println(received);
+                algorithm1(gyr[0], current_arm_angle);
                 
-//                 if(received == "STRETCHED") {
-//                     currentTarget = Target::STRETCHED;
-//                     currentState = State::MOVING;
-//                 }
-//                 else if(received == "BENT") {
-//                     currentTarget = Target::BENT;
-//                     currentState = State::MOVING;
-//                 }
-//             }
-//             if (stepper.distanceToGo() != 0) {
-//                 stepper.run();
-//             }
+                sprintf(send_buffer_string, "L %d |E %.2f |A %+.2f %+.2f %+.2f |G %+.3f %+.3f %+.3f |° %d %.3f",
+                loop_counter, 
+                angle_error,
+                acc[0], acc[1], acc[2],
+                gyr[0], gyr[1], gyr[2],
+                current_encoder_value, current_arm_angle);
+                ArduinoToPc.writeValue(send_buffer_string, sizeof(send_buffer_string));
+            }
 
-//             // CONTROL LOOP
-//             if (timestamp_next_loop <= millis()) {
-//                 while(timestamp_next_loop <= millis()) {
-//                     timestamp_next_loop += LOOP_INTERVAL;
-//                 }
-
-//                 // read acc and gyr, assuming new data is available
-//                 IMU.readAcceleration(acceleration[0], acceleration[1], acceleration[2]);
-//                 IMU.readGyroscope(gyroscope[0], gyroscope[1], gyroscope[2]);
-
-//                 // determime absolute encoder angle
-//                 encoder_value = encoder.readAngle();
-//                 float arm_angle = encoder_to_arm_angle(encoder_value);
-
-//                 // MOTOR CONTROL
-//                 float target_angle = target_to_arm_angle(currentTarget);
-//                 angle_error = target_angle - arm_angle;
-//                 if(currentTarget != Target::NOTHING &&  ERROR_MARGIN_ANGLE < fabs(angle_error)) {
-//                     currentState = State::MOVING;
-//                     if(angle_error < 0) {
-//                         stepper.moveTo(-STEPS_PER_REV);
-//                     } else {
-//                         stepper.moveTo(STEPS_PER_REV);
-
-//                     }
-//                 }else{
-//                     currentTarget = Target::NOTHING;
-//                     currentState = State::REACHED;
-//                     stepper.setSpeed(0.0f);
-//                 }
-
-//                 // Send data to the PC
-//                 sprintf(send_buffer_string, "%s -> %s |M %.2f |A %+.2f %+.2f %+.2f |G %+.3f %+.3f %+.3f |E %d %.3f",
-//                     TARGETS[currentTarget], STATES[currentState],
-//                     angle_error,
-//                     acceleration[0], acceleration[1], acceleration[2],
-//                     gyroscope[0], gyroscope[1], gyroscope[2],
-//                     encoder_value, arm_angle);
-//                 ArduinoToPc.writeValue(send_buffer_string, sizeof(send_buffer_string));
-
-//             }
-//         }
-//     }
-// }
+            stepper.run();
+        } // while true
+    } // if (central)
+} // loop()
