@@ -42,6 +42,13 @@ def notification_handler(sender, data):
 
     text = data.decode('utf-8', errors='ignore')
     
+    if text.startswith("TEXTINIT"):
+        return
+    
+    if text.startswith("TEXT"):
+        print(f"[Arduino ->  Python] {text[4:]}                      ")
+        return
+
     now = time.time()
     global QUEUE_TIME
     QUEUE_TIME.append(now)
@@ -87,7 +94,7 @@ async def main():
     # Boot up the writer thread
     os.makedirs("logs", exist_ok=True)
     filename_log = os.path.join("logs", f"log_{time.strftime('%Y%m%d_%H%M%S')}.txt")
-    writer_task = asyncio.create_task(writer_thread(filename_log))
+    # writer_task = asyncio.create_task(writer_thread(filename_log))
 
     # Connect to the BLE device
     print(f"[main] Connecting to {address_to_connect}...")
@@ -95,7 +102,11 @@ async def main():
 
         # Subscribe to notifications
         print(f"[main] Subscribing to characteristic {ARDUINO_TO_PC_UUID}...")
+        # await asyncio.sleep(3)  # Give Arduino some time
         await client.start_notify(ARDUINO_TO_PC_UUID, notification_handler)
+        print("[main] Subscribed to notifications")
+
+        await client.write_gatt_char(PC_TO_ARDUINO_UUID, "START".encode())
 
         # Run user input in a separate task
         input_task = asyncio.create_task(user_input_loop(client))
@@ -110,7 +121,7 @@ async def main():
 
     # Stop the writer thread
     await QUEUE_WRITE.put(None)
-    await writer_task
+    # await writer_task
 
     print("[main] All done!")
 

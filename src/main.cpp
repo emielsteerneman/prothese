@@ -10,6 +10,7 @@
 #include <AS5600.h>
 #include <AccelStepper.h>
 #include <MahonyAHRS.h>
+#include <stdarg.h>
 
 #include "stdint.h"
 #include "IMUCalibration.h"
@@ -53,10 +54,29 @@ BLEService myService("12345678-1234-5678-1234-56789abcdef0"); // service UUID
 // https://docs.arduino.cc/libraries/arduinoble/#BLECharacteristic%20Class
 BLECharacteristic ArduinoToPc("12345678-1234-5678-1234-56789abcdef1", BLERead | BLENotify, 256); // read and notify UUID
 BLEStringCharacteristic PcToArduino("12345678-1234-5678-1234-56789abcdef2", BLEWrite, 32); // write UUID
-BLEDevice central;
+BLEDevice bluetooth;
 
+/* HERE IS ALL THE SEND-THINGS-TO-PC STUFF */
 // data buffer
 char send_buffer_string[256];
+
+void send_text_to_pc(const char* string){
+    sprintf(send_buffer_string, "TEXT%s", string);
+    ArduinoToPc.writeValue(send_buffer_string, sizeof(send_buffer_string));
+}
+
+void send_text_to_pc_f(const char* format, ...){
+    // Start by writing "TEXT" into the buffer
+    strcpy(send_buffer_string, "TEXT");
+    // Do all the other magic string stuff that places the formatted string into the buffer
+    va_list args;
+    va_start(args, format);
+    vsnprintf(send_buffer_string + 4, sizeof(send_buffer_string) - 4, format, args);
+    va_end(args);
+    // Send the buffer to the PC via Bluetooth
+    ArduinoToPc.writeValue(send_buffer_string, sizeof(send_buffer_string));
+}
+/* END OF SEND-THINGS-TO-PC STUFF */
 
 void setup_bluetooth() {
     Serial.println("Beginning BLE!");
@@ -80,40 +100,37 @@ void setup_bluetooth() {
 
 void setup_imu() {
     Serial.println("Beginning IMU!");
+    send_text_to_pc("Beginning IMU!");
+
     if (!IMU.begin()) {
         Serial.println("Failed to initialize IMU!");
+        send_text_to_pc("Failed to initialize IMU!");
         while (1);
     }
-    Serial.println("Press 'y' to start IMU calibration");
-    while (1)
-    {
-      if (Serial.available() > 0)
-      {
-        String input = Serial.readStringUntil('\n');
-        input.trim();
-        if (input == "y")
-        {
-          Serial.println("Calibrating IMU...");
-          delay(1000);
-          calibrateIMU(numReadings, ax_offset, ay_offset, az_offset, gx_offset, gy_offset, gz_offset);
-          Serial.println("Calibration complete.");
-          break;
-        }
-      }
-    }
+
+    Serial.println("Calibrating IMU...");
+    send_text_to_pc("Calibrating IMU...");
+
+    delay(1000);
+    calibrateIMU(numReadings, ax_offset, ay_offset, az_offset, gx_offset, gy_offset, gz_offset);
+    
 }
 
 void setup_encoder() {
     Serial.println("Beginning Encoder!");
+    send_text_to_pc("Beginning Encoder!");
     if (!encoder.begin()) {
         Serial.println("Failed to initialize Encoder!");
+        send_text_to_pc("Failed to initialize Encoder!");
         while (1);
     }
     Serial.println("Encoder initialized!");
+    send_text_to_pc("Encoder initialized!");
 }
 
 void setup_motor(){
     Serial.println("Beginning Motor!");
+    send_text_to_pc("Beginning Motor!");
 
     stepper.setPinsInverted(false, true);
     stepper.setMaxSpeed(MAX_SPEED); 
@@ -123,6 +140,7 @@ void setup_motor(){
     digitalWrite(MOTOR_ENABLE_PIN, LOW);
 
     Serial.println("Motor initialized!");
+    send_text_to_pc("Motor initialized!");
 }
 
 void transform_acc_data(float ax, float ay, float az){
@@ -341,14 +359,19 @@ void algorithm1(float gx, float current_arm_angle){ // beter om de variabelen gl
 
 void wait_for_user_to_give_L_R(){
     // This needs the bluetooth to be running
+
+    send_text_to_pc("Do you have a left (L) or right (R) elbow prosthetic? Enter 'L' or 'R':");
+
     while(true){
-        while(!central.connected()){
+        while(!bluetooth.connected()){
             // do nothing. keep checking.
         }; 
 
         // Check if we have input from the user. If not, continue
         if( !PcToArduino.written() )
             continue;
+
+        Serial.println("User has given input!");
 
         // We received something from the user! Read it.
         String received = PcToArduino.value();
@@ -357,8 +380,9 @@ void wait_for_user_to_give_L_R(){
         if (received == "L") {
             isLeftProsthetic = true;
             
-            printf(send_buffer_string, "User has chosen Left!");
-            ArduinoToPc.writeValue(send_buffer_string, sizeof(send_buffer_string));
+            send_text_to_pc("User has chosen Left!");
+            // sprintf(send_buffer_string, "TEXTUser has chosen Left!");
+            // ArduinoToPc.writeValue(send_buffer_string, sizeof(send_buffer_string));
             
             float leftTransformationMatrix[3][3] = {
                 {0, 0, -1}, // X flips, Z-axis effect applied
@@ -372,8 +396,9 @@ void wait_for_user_to_give_L_R(){
         else if (received == "R") {
             isLeftProsthetic = false;
             
-            printf(send_buffer_string, "User has chosen Right!");
-            ArduinoToPc.writeValue(send_buffer_string, sizeof(send_buffer_string));
+            // sprintf(send_buffer_string, "TEXTUser has chosen Right!");
+            // ArduinoToPc.writeValue(send_buffer_string, sizeof(send_buffer_string));
+            send_text_to_pc("User has chosen Right!");
 
             float rightTransformationMatrix[3][3] = {
                 {0, 0, 1},
@@ -397,27 +422,31 @@ void setup() {
     delay(1000);
     setup_bluetooth();
     delay(1000);
-    Serial.println("now waiting for connection");
-    while(!central){
-        central = BLE.central();
+
+    /* THIS PART ESTABLISHES THE BLUETOOTH CONNECTION BETWEEN THE ARDUINO AND THE PYTHON CODE */
+    Serial.println("Waiting for the PC to connect to the Arduino Bluetooth...");
+    while(!bluetooth){
+        bluetooth = BLE.central();
     }
-    Serial.println("Connection made!");
+    while(!bluetooth.connected());
+    Serial.println("PC connected to the Arduino Bluetooth!");
 
-    // Ask if the user is using a left or right elbow prosthetic
-    printf(send_buffer_string, "Do you have a left (L) or right (R) elbow prosthetic? Enter 'L' or 'R':");
-    ArduinoToPc.writeValue(send_buffer_string, sizeof(send_buffer_string));
+    // This is needed because for some reason, the first few writes to the PC are not received.. This keeps writing
+    // until the PC has received the message and responds. We then know that the PC is ready to receive messages.
+    while(!PcToArduino.written()){
+        delay(200);
+        while(!bluetooth.connected());
+        send_text_to_pc("INIT");
+        Serial.print(".. Still waiting\r");
+    }
+    /* THE CONNECTION IS NOW MADE BETWEEN THE ARDUINO AND THE PYTHON CODE */
 
-    wait_for_user_to_give_L_R();
-    
-    delay(1000);
-    setup_encoder();
-    delay(1000);
-    setup_imu();
-    delay(1000);
-    setup_motor();
-
-    printf(send_buffer_string, "Setup done!");
-    ArduinoToPc.writeValue(send_buffer_string, sizeof(send_buffer_string));
+    Serial.println("Waiting for user to give L or R");
+    delay(100); wait_for_user_to_give_L_R();
+    delay(500); setup_encoder();
+    delay(500); setup_imu();
+    delay(500); setup_motor();
+    delay(500); send_text_to_pc_f("Setup completed after %d ms!", millis());
 
     mahony.begin(50);
 }
@@ -433,8 +462,7 @@ void loop() {
     float q0, q1, q2, q3;
     uint32_t loop_counter = 0;
 
-    if (central) {
-        // Serial.println("Connected to PC!");
+    if (bluetooth) {
         timestamp_next_loop = millis() + LOOP_INTERVAL;
 
         while (true) {
@@ -443,7 +471,7 @@ void loop() {
                     timestamp_next_loop += LOOP_INTERVAL;
                 }
 
-                while(!central.connected()){
+                while(!bluetooth.connected()){
                     // do nothing. keep checking.
                 }; 
 
@@ -476,5 +504,8 @@ void loop() {
 
             stepper.run();
         } // while true
-    } // if (central)
+    } // if (bluetooth)
+    else {
+        Serial.println("NOT BLUETOOTH CONNECTED!");
+    }
 } // loop()
