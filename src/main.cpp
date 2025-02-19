@@ -1,6 +1,4 @@
 // VRAGEN:  - waar moeten welke variabelen geïniteerd worden? in of buiten loop?
-//          - Hoe kan ik Mahony toevoegen? libraries downloaden geeft issues?
-//          - wat doet memcpy ook alweer?
 
 // libraries
 #include <ArduinoBLE.h>
@@ -10,7 +8,6 @@
 #include <AS5600.h>
 #include <AccelStepper.h>
 #include <MahonyAHRS.h>
-
 
 #include "stdint.h"
 #include "IMUCalibration.h"
@@ -31,12 +28,12 @@ AS5600 encoder;
 Mahony mahony;
 
 // global variables 
-const uint32_t LOOP_INTERVAL = 100; // in ms
+const uint32_t LOOP_INTERVAL = 20; // in ms
 const int numReadings = 150;
 const int numRounds = 40;    // Number of rounds to store quaternion values
 const float MAX_SPEED = 17900.0;
 const float ACCELERATION = 50000.0;//50000.0; //100
-const float ERROR_MARGIN_ANGLE = 2.0;
+const float ERROR_MARGIN_ANGLE = 0.5;
 const float STEPS_PER_DEGREE = 10666.67;
 const float eta = 0.005f;    // Tolerance value for floating-point comparison
 const float epsilon = 0.01; // Threshold for determining stability
@@ -49,9 +46,9 @@ float gx_offset = 0, gy_offset = 0, gz_offset = 0; // initialize offset values
 float q0Old = 0, q1Old = 0, q2Old = 0, q3Old = 0; // initialise previous value for stability check
 float accValues[numRounds][3]; // Stores ax, ay, az for stability check
 float gyrValues[numRounds][3]; // Stores gx, gy, gz for stability check
-
-
-
+float target_arm_angle = 10;
+bool gxTriggered = false;
+bool emergency_stop = false;
 
 void setup_imu() {
     Serial.println("Beginning IMU!");
@@ -68,6 +65,9 @@ void setup_imu() {
 
     delay(1000);
     calibrateIMU(numReadings, ax_offset, ay_offset, az_offset, gx_offset, gy_offset, gz_offset);
+
+    Serial.println("Calibrating of IMU complete!");
+    send_text_to_pc("Calibrating of IMU complete!");
     
 }
 
@@ -257,27 +257,35 @@ float encoder_to_arm_angle(uint16_t encoder_value) {
 }
 
 void algorithm1(float gx, float current_arm_angle){ // beter om de variabelen globaal te maken?
-    float target_arm_angle = 5;
-    bool gxTriggered = false;
 
     if (gx > 200){ // m/s2
         gxTriggered = true;  // Set the flag to true
     }
 
     if (gxTriggered){
-        if (current_arm_angle > 5) {
-            target_arm_angle = 5;
+        if (current_arm_angle > 10) {
+            target_arm_angle = 10;
         }
-    } else {
-        if (mahony.getRoll() < -20 && current_arm_angle < 90 /* degrees */) {
+
+        if (mahony.getRoll() < -20 && current_arm_angle < 60){
+            target_arm_angle = current_arm_angle;
+            gxTriggered = false;
+        }
+    } else { //!gxTriggered
+        if (mahony.getRoll() < -20 && current_arm_angle < 60 /* degrees */) {
             target_arm_angle += 0.5;
+        }else{
+            target_arm_angle = current_arm_angle;
         }
     }
+
+    target_arm_angle = constrain(target_arm_angle, 5, 85);
 
     float angle_error = target_arm_angle - current_arm_angle;
     bool target_reached = fabs(angle_error) < ERROR_MARGIN_ANGLE;
 
     if (target_reached){
+        gxTriggered = false;
         stepper.stop();
         digitalWrite(MOTOR_ENABLE_PIN, HIGH);
     } else {
@@ -285,10 +293,12 @@ void algorithm1(float gx, float current_arm_angle){ // beter om de variabelen gl
         stepper.move(angle_error * STEPS_PER_DEGREE);
     }
 
-    if (current_arm_angle < 4 || 91 < current_arm_angle) {
+    if (current_arm_angle < 6 || 80 < current_arm_angle) {
         stepper.stop();
         digitalWrite(MOTOR_ENABLE_PIN, HIGH);
+        emergency_stop = true;
     }
+    
 }
 
 void wait_for_user_to_give_L_R(){
@@ -350,14 +360,14 @@ void setup() {
     delay(500); setup_bluetooth();
     delay(500); connect_bluetooth_to_pc();
     
-    Serial.println("Waiting for user to give L or R");
+    Serial.println("Waiting for user to give 'L' or 'R'");
     delay(100); wait_for_user_to_give_L_R();
     delay(500); setup_encoder();
     delay(500); setup_imu();
     delay(500); setup_motor();
     delay(500); send_text_to_pc_f("Setup completed after %d ms!", millis());
 
-    mahony.begin(10);
+    mahony.begin(50);
 }
 
 // continuous loop
@@ -393,9 +403,9 @@ void loop() {
                 // Update the Mahony filter
                 mahony.updateIMU(gyr[0], gyr[1], gyr[2], acc[0], acc[1], acc[2]);
                 // Get the quaternion values
-                mahony.getQuaternion(q0, q1, q2, q3);
+                //mahony.getQuaternion(q0, q1, q2, q3); // gaat dit wel goed zo? of kan ik beter een float maken van updateIMU?
                 // Drift prevention
-                drift_prevention(q0, q1, q2, q3, acc[0], acc[1], acc[2], gyr[0], gyr[1], gyr[2]);
+                //drift_prevention(q0, q1, q2, q3, acc[0], acc[1], acc[2], gyr[0], gyr[1], gyr[2]);
 
 
                 current_encoder_value = encoder.readAngle();
@@ -404,13 +414,14 @@ void loop() {
                 algorithm1(gyr[0], current_arm_angle);
                 float rollMahony = mahony.getRoll(); // Fetch roll value
                 
-                send_data_to_pc_f("L %d |E %.2f |A %+.2f %+.2f %+.2f |G %+.3f %+.3f %+.3f |C %d => %.3f° |R %.3f",
+                send_data_to_pc_f("L %d |E %.2f |A %+.2f %+.2f %+.2f |G %+.3f %+.3f %+.3f |C %d => %.3f° |R %.3f | P %d",
                 /* L */ loop_counter, 
                 /* E */ angle_error,
                 /* A */ acc[0], acc[1], acc[2],
                 /* G */ gyr[0], gyr[1], gyr[2],
                 /* C */ current_encoder_value, current_arm_angle,
-                /* R */ rollMahony);
+                /* R */ rollMahony,
+                /* P */ emergency_stop);
             }
 
             stepper.run();
