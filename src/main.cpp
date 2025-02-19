@@ -98,7 +98,7 @@ void setup_motor(){
     send_text_to_pc("Motor initialized!");
 }
 
-void transform_acc_data(float ax, float ay, float az){
+void transform_acc_data(float& ax, float& ay, float& az){
     ax -= ax_offset + 1; // include gravitational constant
     ay -= ay_offset;
     az -= az_offset;
@@ -112,7 +112,7 @@ void transform_acc_data(float ax, float ay, float az){
     az = azTransformed;
 }
 
-void transform_gyr_data(float gx, float gy, float gz){
+void transform_gyr_data(float& gx, float& gy, float& gz){
     gx -= gx_offset; // / GYRO_SENSITIVITY;
     gy -= gy_offset; // / GYRO_SENSITIVITY;
     gz -= gz_offset; // / GYRO_SENSITIVITY;
