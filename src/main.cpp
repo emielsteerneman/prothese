@@ -12,6 +12,7 @@
 #include "stdint.h"
 #include "IMUCalibration.h"
 #include "bluetooth_stuff.h"
+#include "motor_stuff.h"
 
 // define pins
 #define MOTOR_STEP_PIN 3
@@ -356,6 +357,70 @@ void wait_for_user_to_give_L_R(){
 void setup() {
     Serial.begin(115200);
     Wire.begin();
+
+
+    // delay(2000);
+    // Serial.println("beginning");
+    setup_encoder();
+    // Serial.println("encoder done");
+    delay(500); setup_bluetooth();
+    delay(500); connect_bluetooth_to_pc();
+    // delay(500); if(Serial) {
+    //     send_text_to_pc("Serial available!");
+    // }else{
+    //     send_text_to_pc("Serial not available!");
+    // }
+
+    // delay(500); run_emiel_motor_test(); while(1);
+
+    delay(500); setup_encoder();
+    delay(500); setup_motor_control();
+    
+
+    bool EXTEND = LOW;
+    bool FLEX = HIGH;
+
+    float arm_angle = encoder_to_arm_angle(encoder.readAngle());
+    bool direction = FLEX;
+    if(arm_angle < 40){
+        direction = EXTEND;
+    }
+    turn_steps_per_second(25000, direction);
+
+    while(true){
+
+        // Get current arm angle
+        arm_angle = encoder_to_arm_angle(encoder.readAngle());
+        if (arm_angle < 10 || 80 < arm_angle) {
+            turn_steps_per_second(0, direction);
+            disable_motor();
+            break;
+        }
+
+        if(arm_angle < 20){
+            direction = FLEX;
+            turn_steps_per_second(0, direction);
+            delay(200);
+            turn_steps_per_second(30000, direction);
+        }
+
+        if(75 < arm_angle){
+            direction = EXTEND;
+            turn_steps_per_second(0, direction);
+            delay(200);
+            turn_steps_per_second(30000, direction);
+        }
+        delay(100);
+        send_data_to_pc_f("Current arm angle: %.2f", arm_angle);
+
+    }
+    while(1);
+    
+    disable_motor();
+    Serial.println("done");
+    send_text_to_pc("Done!");
+
+    while(true);
 
     delay(500); setup_bluetooth();
     delay(500); connect_bluetooth_to_pc();

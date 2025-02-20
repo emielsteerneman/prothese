@@ -5,6 +5,8 @@
 #include <nrfx_pwm.h>
 #include <stdint.h>
 
+#include "bluetooth_stuff.h"
+
 #define MOTOR_DIR_PIN 4
 #define MOTOR_ENABLE_PIN 5
 #define NRFX_STEP_PIN 4  // Use Arduino pin D14 (nRF GPIO P0.04)
@@ -56,8 +58,13 @@ void setup_motor_control(){
     };
 }
 
-bool turn_steps_per_second(uint32_t steps_per_second){
+bool turn_steps_per_second(uint32_t steps_per_second, uint8_t dir){
     
+    if(steps_per_second == 0){
+        disable_motor();
+        return true;
+    }
+
     // The clock runs at 8MHz. This means it counts 8 000 000 "ticks" in one second.
     // Every cycle of the PWM is two steps. One up, one down. If we want to have N steps
     // per second, we need to complete N/2 cycles per second. This means that we need to
@@ -84,6 +91,7 @@ bool turn_steps_per_second(uint32_t steps_per_second){
     // Start the PWM with the new duty cycle.
     nrfx_pwm_simple_playback(&PWM_INSTANCE, &PWM_SEQUENCE, 1, NRFX_PWM_FLAG_LOOP);
 
+    digitalWrite(MOTOR_DIR_PIN, dir);
     enable_motor();
 
     return true;
@@ -108,11 +116,19 @@ void test1_pwm(){
                 } else {
                     dir = LOW;
                 }
-                digitalWrite(MOTOR_DIR_PIN, dir);
+                // digitalWrite(MOTOR_DIR_PIN, dir);
             }
         }
-        turn_steps_per_second(steps_per_second);
-        delay(25);
+        turn_steps_per_second(steps_per_second, dir);
+        delay(100);
+        // Serial.print("Hello from emiel_motor_test!: ");
+        // Serial.print(steps_per_second);
+        // Serial.print(" .top_value: ");
+        // Serial.print(PWM_CONFIGURATION.top_value);
+        // Serial.print(" Duty cycle: ");
+        // Serial.println(duty_cycle);
+
+        send_text_to_pc_f("Hello from emiel_motor_test!: %d .top_value: %d Duty cycle: %d", steps_per_second, PWM_CONFIGURATION.top_value, duty_cycle);
     }
 }
 
