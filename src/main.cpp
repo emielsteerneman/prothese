@@ -1,12 +1,10 @@
-// VRAGEN:  - waar moeten welke variabelen geïniteerd worden? in of buiten loop?
-
 // libraries
 #include <ArduinoBLE.h>
 #include <Arduino_LSM9DS1.h>
 #include <Serial.h>
 #include <Wire.h>
 #include <AS5600.h>
-#include <AccelStepper.h>
+//#include <AccelStepper.h>
 #include <MahonyAHRS.h>
 
 #include "stdint.h"
@@ -20,7 +18,7 @@
 #define MOTOR_ENABLE_PIN 5
 
 // motor object
-AccelStepper stepper(AccelStepper::DRIVER, MOTOR_STEP_PIN, MOTOR_DIR_PIN); 
+//AccelStepper stepper(AccelStepper::DRIVER, MOTOR_STEP_PIN, MOTOR_DIR_PIN); 
 
 // encoder object
 AS5600 encoder;
@@ -50,6 +48,11 @@ float gyrValues[numRounds][3]; // Stores gx, gy, gz for stability check
 float target_arm_angle = 10;
 bool gxTriggered = false;
 bool emergency_stop = false;
+
+unsigned long gxTriggerTime = 0; // Stores the last time gx was triggered
+unsigned long rollTriggerTime = 0; // Stores the last time roll was triggered
+const unsigned long gxCooldownPeriod = 500; // Cooldown period in milliseconds
+const unsigned long rollCooldownPeriod = 1000; // Cooldown period in milliseconds
 
 void setup_imu() {
     Serial.println("Beginning IMU!");
@@ -84,20 +87,20 @@ void setup_encoder() {
     send_text_to_pc("Encoder initialized!");
 }
 
-void setup_motor(){
-    Serial.println("Beginning Motor!");
-    send_text_to_pc("Beginning Motor!");
+// void setup_motor(){
+//     Serial.println("Beginning Motor!");
+//     send_text_to_pc("Beginning Motor!");
 
-    stepper.setPinsInverted(false, true);
-    stepper.setMaxSpeed(MAX_SPEED); 
-    stepper.setAcceleration(ACCELERATION);
+//     stepper.setPinsInverted(false, true);
+//     stepper.setMaxSpeed(MAX_SPEED); 
+//     stepper.setAcceleration(ACCELERATION);
 
-    pinMode(MOTOR_ENABLE_PIN, OUTPUT);
-    digitalWrite(MOTOR_ENABLE_PIN, LOW);
+//     pinMode(MOTOR_ENABLE_PIN, OUTPUT);
+//     digitalWrite(MOTOR_ENABLE_PIN, LOW);
 
-    Serial.println("Motor initialized!");
-    send_text_to_pc("Motor initialized!");
-}
+//     Serial.println("Motor initialized!");
+//     send_text_to_pc("Motor initialized!");
+// }
 
 void transform_acc_data(float& ax, float& ay, float& az){
     ax -= ax_offset + 1; // include gravitational constant
@@ -259,8 +262,9 @@ float encoder_to_arm_angle(uint16_t encoder_value) {
 
 void algorithm1(float gx, float current_arm_angle){ // beter om de variabelen globaal te maken?
 
-    if (gx > 200){ // m/s2
+    if (gx > 200){ 
         gxTriggered = true;  // Set the flag to true
+        gxTriggerTime = millis(); 
     }
 
     if (gxTriggered){
@@ -268,12 +272,13 @@ void algorithm1(float gx, float current_arm_angle){ // beter om de variabelen gl
             target_arm_angle = 10;
         }
 
-        if (mahony.getRoll() < -20 && current_arm_angle < 60){
+        if ((millis() - gxTriggerTime > gxCooldownPeriod) && mahony.getRoll() < -20 && current_arm_angle < 60){
             target_arm_angle = current_arm_angle;
             gxTriggered = false;
+            rollTriggerTime = millis(); 
         }
     } else { //!gxTriggered
-        if (mahony.getRoll() < -20 && current_arm_angle < 60 /* degrees */) {
+        if ((millis() - rollTriggerTime > rollCooldownPeriod) &&mahony.getRoll() < -20 && current_arm_angle < 60 /* degrees */) {
             target_arm_angle += 0.5;
         }else{
             target_arm_angle = current_arm_angle;
@@ -287,15 +292,25 @@ void algorithm1(float gx, float current_arm_angle){ // beter om de variabelen gl
 
     if (target_reached){
         gxTriggered = false;
-        stepper.stop();
+        disable_motor();
+        // stepper.stop();
         digitalWrite(MOTOR_ENABLE_PIN, HIGH);
     } else {
         digitalWrite(MOTOR_ENABLE_PIN, LOW);
-        stepper.move(angle_error * STEPS_PER_DEGREE);
+        //stepper.move(angle_error * STEPS_PER_DEGREE);
+        bool direction;
+        if (current_arm_angle < target_arm_angle){
+            direction = 1;
+        }
+        else {
+            direction = 0;
+        }
+        turn_steps_per_second(20000, direction);
     }
 
     if (current_arm_angle < 6 || 80 < current_arm_angle) {
-        stepper.stop();
+        disable_motor();
+        //stepper.stop();
         digitalWrite(MOTOR_ENABLE_PIN, HIGH);
         emergency_stop = true;
     }
@@ -361,10 +376,12 @@ void setup() {
 
     // delay(2000);
     // Serial.println("beginning");
-    setup_encoder();
-    // Serial.println("encoder done");
-    delay(500); setup_bluetooth();
-    delay(500); connect_bluetooth_to_pc();
+    // setup_encoder();
+    // // Serial.println("encoder done");
+    // delay(500); 
+    // setup_bluetooth();
+    // delay(500); 
+    // connect_bluetooth_to_pc();
     // delay(500); if(Serial) {
     //     send_text_to_pc("Serial available!");
     // }else{
@@ -373,64 +390,72 @@ void setup() {
 
     // delay(500); run_emiel_motor_test(); while(1);
 
-    delay(500); setup_encoder();
-    delay(500); setup_motor_control();
+    //delay(500); setup_encoder();
+   // delay(500); setup_motor_control();
     
 
-    bool EXTEND = LOW;
-    bool FLEX = HIGH;
+   // bool EXTEND = LOW; // 0
+   // bool FLEX = HIGH; // current kleiner dan target --> flexen
 
-    float arm_angle = encoder_to_arm_angle(encoder.readAngle());
-    bool direction = FLEX;
-    if(arm_angle < 40){
-        direction = EXTEND;
-    }
-    turn_steps_per_second(25000, direction);
+    // float arm_angle = encoder_to_arm_angle(encoder.readAngle());
+    // bool direction = FLEX;
+    // if(arm_angle < 40){
+        // direction = EXTEND;
+    // }
+    // turn_steps_per_second(25000, direction);
 
-    while(true){
+    // while(true){
 
-        // Get current arm angle
-        arm_angle = encoder_to_arm_angle(encoder.readAngle());
-        if (arm_angle < 10 || 80 < arm_angle) {
-            turn_steps_per_second(0, direction);
-            disable_motor();
-            break;
-        }
+    //     // Get current arm angle
+    //     arm_angle = encoder_to_arm_angle(encoder.readAngle());
+    //     if (arm_angle < 10 || 80 < arm_angle) {
+    //         turn_steps_per_second(0, direction);
+    //         disable_motor();
+    //         break;
+    //     }
 
-        if(arm_angle < 20){
-            direction = FLEX;
-            turn_steps_per_second(0, direction);
-            delay(200);
-            turn_steps_per_second(30000, direction);
-        }
+    //     if(arm_angle < 20){
+    //         direction = FLEX;
+    //         turn_steps_per_second(0, direction);
+    //         delay(200);
+    //         turn_steps_per_second(30000, direction);
+    //     }
 
-        if(75 < arm_angle){
-            direction = EXTEND;
-            turn_steps_per_second(0, direction);
-            delay(200);
-            turn_steps_per_second(30000, direction);
-        }
-        delay(100);
-        send_data_to_pc_f("Current arm angle: %.2f", arm_angle);
+    //     if(75 < arm_angle){
+    //         direction = EXTEND;
+    //         turn_steps_per_second(0, direction);
+    //         delay(200);
+    //         turn_steps_per_second(30000, direction);
+    //     }
+    //     delay(100);
+    //     send_data_to_pc_f("Current arm angle: %.2f", arm_angle);
 
-    }
-    while(1);
+    // }
+    // while(1);
     
-    disable_motor();
-    Serial.println("done");
-    send_text_to_pc("Done!");
+    // disable_motor();
+    // Serial.println("done");
+    // send_text_to_pc("Done!");
 
-    while(true);
+    // while(true);
 
-    delay(500); setup_bluetooth();
-    delay(500); connect_bluetooth_to_pc();
+    delay(500); 
+    setup_bluetooth();
+    delay(500); 
+    connect_bluetooth_to_pc();
     
     Serial.println("Waiting for user to give 'L' or 'R'");
-    delay(100); wait_for_user_to_give_L_R();
-    delay(500); setup_encoder();
-    delay(500); setup_imu();
-    delay(500); setup_motor();
-    delay(500); send_text_to_pc_f("Setup completed after %d ms!", millis());
+    delay(100); 
+    wait_for_user_to_give_L_R();
+    delay(500); 
+    setup_encoder();
+    delay(500); 
+    setup_imu();
+    delay(500); 
+    setup_motor_control();
+    // setup_motor();
+    delay(500); 
+    send_text_to_pc_f("Setup completed after %d ms!", millis());
 
     mahony.begin(50);
 }
@@ -443,7 +468,7 @@ void loop() {
     uint16_t current_encoder_value = 0;
     float current_arm_angle = 0.;
     float angle_error = 0;
-    float q0, q1, q2, q3;
+    // float q0, q1, q2, q3;
     uint32_t loop_counter = 0;
 
     if (BLUETOOTH) {
@@ -489,7 +514,7 @@ void loop() {
                 /* P */ emergency_stop);
             }
 
-            stepper.run();
+            //stepper.run();
         } // while true
     } // if (bluetooth)
     else {
