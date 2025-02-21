@@ -49,6 +49,7 @@ float target_arm_angle = 10;
 bool gxTriggered = false;
 bool emergency_stop = false;
 
+// variables for algorithm 1
 unsigned long gxTriggerTime = 0; // Stores the last time gx was triggered
 unsigned long rollTriggerTime = 0; // Stores the last time roll was triggered
 const unsigned long gxCooldownPeriod = 500; // Cooldown period in milliseconds
@@ -260,7 +261,7 @@ float encoder_to_arm_angle(uint16_t encoder_value) {
     return encoder_degrees - ENCODER_TO_ARM_OFFSET_DEGREES;
 }
 
-void algorithm1(float gx, float current_arm_angle){ // beter om de variabelen globaal te maken?
+void algorithm1(float gx, float current_arm_angle){ // moet gx niet een pointer worden?
 
     if (gx > 200){ 
         gxTriggered = true;  // Set the flag to true
@@ -300,10 +301,10 @@ void algorithm1(float gx, float current_arm_angle){ // beter om de variabelen gl
         //stepper.move(angle_error * STEPS_PER_DEGREE);
         bool direction;
         if (current_arm_angle < target_arm_angle){
-            direction = 1;
+            direction = 1;  // FLEX
         }
         else {
-            direction = 0;
+            direction = 0; // EXTEND
         }
         turn_steps_per_second(20000, direction);
     }
@@ -315,6 +316,55 @@ void algorithm1(float gx, float current_arm_angle){ // beter om de variabelen gl
         emergency_stop = true;
     }
     
+}
+
+void algorithm2(float gx, float ax,  float current_arm_angle) {
+    // Define speed scaling factors
+    const float MIN_STEPS = 3000;   // Minimum motor speed
+    const float MAX_STEPS = 15000;  // Maximum motor speed
+    const float GYRO_THRESHOLD = 15;  // Minimum gx value to activate movement
+
+    // Determine speed based on gx magnitude
+    float motorSteps = map(abs(gx), 0, 500, MIN_STEPS, MAX_STEPS);  
+    motorSteps = constrain(motorSteps, MIN_STEPS, MAX_STEPS);  
+
+    // Determine direction based on ax
+    if (abs(gx) > GYRO_THRESHOLD && gxTriggered == true) {  
+        bool direction;
+        gxTriggerTime = millis();
+        if (gx > 0) {  
+            direction = 1;
+            turn_steps_per_second(motorSteps, direction);
+        } else{  
+            direction = 0;
+            turn_steps_per_second(motorSteps, direction);
+        }
+    } else {
+        //disable_motor();  // Stop motor if gx is too small
+        gxTriggered = false;
+    }
+
+    if (millis() - gxTriggerTime > gxCooldownPeriod){
+        //disable_motor();
+        gxTriggered = false;
+    }
+
+    if (gxTriggered == false){
+        if (mahony.getRoll() > 20){
+            gxTriggered = true;
+        }
+        else{
+            disable_motor();
+        }
+    }
+
+    if (current_arm_angle < 6 || 80 < current_arm_angle) {
+        disable_motor();
+        //stepper.stop();
+        digitalWrite(MOTOR_ENABLE_PIN, HIGH);
+        emergency_stop = true;
+    }
+
 }
 
 void wait_for_user_to_give_L_R(){
@@ -501,7 +551,8 @@ void loop() {
                 current_encoder_value = encoder.readAngle();
                 current_arm_angle = encoder_to_arm_angle(current_encoder_value);
 
-                algorithm1(gyr[0], current_arm_angle);
+                //algorithm1(gyr[0], current_arm_angle);
+                algorithm2(gyr[0], acc[1], current_arm_angle);
                 float rollMahony = mahony.getRoll(); // Fetch roll value
                 
                 send_data_to_pc_f("L %d |E %.2f |A %+.2f %+.2f %+.2f |G %+.3f %+.3f %+.3f |C %d => %.3f° |R %.3f | P %d",
