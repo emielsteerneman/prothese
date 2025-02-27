@@ -50,6 +50,7 @@ Mahony::Mahony()
 	integralFBy = 0.0f;
 	integralFBz = 0.0f;
 	anglesComputed = 0;
+	angularVelocityComputed = 0;
 	invSampleFreq = 1.0f / DEFAULT_SAMPLE_FREQ;
 }
 
@@ -162,6 +163,7 @@ void Mahony::update(float gx, float gy, float gz, float ax, float ay, float az, 
 	q2 *= recipNorm;
 	q3 *= recipNorm;
 	anglesComputed = 0;
+	angularVelocityComputed = 0;
 }
 
 //-------------------------------------------------------------------------------------------
@@ -240,6 +242,7 @@ void Mahony::updateIMU(float gx, float gy, float gz, float ax, float ay, float a
 	q2 *= recipNorm;
 	q3 *= recipNorm;
 	anglesComputed = 0;
+	angularVelocityComputed = 0;
 }
 
 //-------------------------------------------------------------------------------------------
@@ -266,6 +269,13 @@ void Mahony::computeAngles()
 	pitch = asinf(-2.0f * (q1*q3 - q0*q2));
 	yaw = atan2f(q1*q2 + q0*q3, 0.5f - q2*q2 - q3*q3);
 	anglesComputed = 1;
+}
+
+void Mahony::computeAngularVelocity(){
+	float omega_x = 2.0f * (q0 * q1 + q2 * q3);
+	float omega_y = 2.0f * (q0 * q2 - q1 * q3);
+	float omega_z = 1.0f - 2.0f * (q1 * q1 + q2 * q2);
+	angularVelocityComputed = 1;
 }
 
 // void Mahony::getQuaternion(float &q0_out, float &q1_out, float &q2_out, float &q3_out) {

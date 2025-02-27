@@ -7,9 +7,11 @@
 
 #include "bluetooth_stuff.h"
 
-#define MOTOR_DIR_PIN 4
-#define MOTOR_ENABLE_PIN 5
-#define NRFX_STEP_PIN 4  // Use Arduino pin D14 (nRF GPIO P0.04)
+#define MS1_PIN 8
+#define MS2_PIN 7
+#define MOTOR_DIR_PIN 2
+#define MOTOR_ENABLE_PIN 9
+#define NRFX_STEP_PIN NRF_GPIO_PIN_MAP(1,12)  // Use Arduino pin D14 (nRF GPIO P0.04) // 4
 
 #define LOW  0  // This is not needed but it removes the dumb incorrect IntelliSense error
 #define HIGH 1  // This is not needed but it removes the dumb incorrect IntelliSense error
@@ -30,6 +32,12 @@ void disable_motor(){
 }
 
 void setup_motor_control(){
+    pinMode(MS1_PIN, OUTPUT);
+    digitalWrite(MS1_PIN, HIGH);
+
+    pinMode(MS2_PIN, OUTPUT);
+    digitalWrite(MS2_PIN, HIGH);
+    
     pinMode(MOTOR_DIR_PIN, OUTPUT);
     digitalWrite(MOTOR_DIR_PIN, LOW);
     

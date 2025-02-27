@@ -13,9 +13,11 @@
 #include "motor_stuff.h"
 
 // define pins
+#define MS1_PIN 8
+#define MS2_PIN 7
 #define MOTOR_STEP_PIN 3
-#define MOTOR_DIR_PIN 4
-#define MOTOR_ENABLE_PIN 5
+#define MOTOR_DIR_PIN 2
+#define MOTOR_ENABLE_PIN 9
 
 // motor object
 //AccelStepper stepper(AccelStepper::DRIVER, MOTOR_STEP_PIN, MOTOR_DIR_PIN); 
@@ -46,14 +48,25 @@ float q0Old = 0, q1Old = 0, q2Old = 0, q3Old = 0; // initialise previous value f
 float accValues[numRounds][3]; // Stores ax, ay, az for stability check
 float gyrValues[numRounds][3]; // Stores gx, gy, gz for stability check
 float target_arm_angle = 10;
-bool gxTriggered = false;
 bool emergency_stop = false;
 
 // variables for algorithm 1
+bool gxTriggered = false;
 unsigned long gxTriggerTime = 0; // Stores the last time gx was triggered
 unsigned long rollTriggerTime = 0; // Stores the last time roll was triggered
-const unsigned long gxCooldownPeriod = 500; // Cooldown period in milliseconds
+// const unsigned long gxCooldownPeriod = 500; // Cooldown period in milliseconds
 const unsigned long rollCooldownPeriod = 1000; // Cooldown period in milliseconds
+
+// variables for algorithm 2
+bool gxEnabled = false;
+const unsigned long gxCooldownPeriod = 1000; // Cooldown period in milliseconds // also used in algorithm 3
+
+// variables for algorithm 3
+unsigned long omegaXFlexTriggerTime = 0;
+unsigned long omegaXExtendTriggerTime = 0;
+
+// variables for test run
+int motor_run_counter = 0;
 
 void setup_imu() {
     Serial.println("Beginning IMU!");
@@ -87,21 +100,6 @@ void setup_encoder() {
     Serial.println("Encoder initialized!");
     send_text_to_pc("Encoder initialized!");
 }
-
-// void setup_motor(){
-//     Serial.println("Beginning Motor!");
-//     send_text_to_pc("Beginning Motor!");
-
-//     stepper.setPinsInverted(false, true);
-//     stepper.setMaxSpeed(MAX_SPEED); 
-//     stepper.setAcceleration(ACCELERATION);
-
-//     pinMode(MOTOR_ENABLE_PIN, OUTPUT);
-//     digitalWrite(MOTOR_ENABLE_PIN, LOW);
-
-//     Serial.println("Motor initialized!");
-//     send_text_to_pc("Motor initialized!");
-// }
 
 void transform_acc_data(float& ax, float& ay, float& az){
     ax -= ax_offset + 1; // include gravitational constant
@@ -301,10 +299,10 @@ void algorithm1(float gx, float current_arm_angle){ // moet gx niet een pointer 
         //stepper.move(angle_error * STEPS_PER_DEGREE);
         bool direction;
         if (current_arm_angle < target_arm_angle){
-            direction = 1;  // FLEX
+            direction = 0;  // FLEX
         }
         else {
-            direction = 0; // EXTEND
+            direction = 1; // EXTEND
         }
         turn_steps_per_second(20000, direction);
     }
@@ -319,52 +317,99 @@ void algorithm1(float gx, float current_arm_angle){ // moet gx niet een pointer 
 }
 
 void algorithm2(float gx, float ax,  float current_arm_angle) {
+    // na bereiken van roll threshold --> als gx de threshold overschrijft geldt het mapping syteem
+    // zodra gx onder de threshold, motor stop.
+    // als gx langer dan 1 seconde onder de threshol, motor/algoritme begint pas weer als roll threshold bereikt is
+    // zodra gx onder threshold, motor stopt. Binnen een seconde weer beweging? --> algoritme wordt doorgezet
+    
     // Define speed scaling factors
-    const float MIN_STEPS = 3000;   // Minimum motor speed
-    const float MAX_STEPS = 15000;  // Maximum motor speed
+    const float MIN_STEPS = 10000;   // Minimum motor speed
+    const float MAX_STEPS = 20000;  // Maximum motor speed
     const float GYRO_THRESHOLD = 15;  // Minimum gx value to activate movement
 
     // Determine speed based on gx magnitude
-    float motorSteps = map(abs(gx), 0, 500, MIN_STEPS, MAX_STEPS);  
+    float motorSteps = map(abs(gx), 0, 40, MIN_STEPS, MAX_STEPS);  
     motorSteps = constrain(motorSteps, MIN_STEPS, MAX_STEPS);  
 
-    // Determine direction based on ax
-    if (abs(gx) > GYRO_THRESHOLD && gxTriggered == true) {  
-        bool direction;
-        gxTriggerTime = millis();
-        if (gx > 0) {  
-            direction = 1;
-            turn_steps_per_second(motorSteps, direction);
-        } else{  
-            direction = 0;
-            turn_steps_per_second(motorSteps, direction);
-        }
-    } else {
-        //disable_motor();  // Stop motor if gx is too small
-        gxTriggered = false;
+
+    bool person_is_moving_arm = GYRO_THRESHOLD < abs(gx);
+
+    if(person_is_moving_arm && gxEnabled){
+        gxTriggerTime = millis(); // Store the latest time the person moved his arm
+        turn_steps_per_second(motorSteps, gx < 0);
     }
 
-    if (millis() - gxTriggerTime > gxCooldownPeriod){
-        //disable_motor();
-        gxTriggered = false;
-    }
-
-    if (gxTriggered == false){
-        if (mahony.getRoll() > 20){
-            gxTriggered = true;
-        }
-        else{
-            disable_motor();
-        }
-    }
-
-    if (current_arm_angle < 6 || 80 < current_arm_angle) {
+    if(!person_is_moving_arm){
         disable_motor();
-        //stepper.stop();
-        digitalWrite(MOTOR_ENABLE_PIN, HIGH);
+    }
+    
+    bool arm_has_not_moved_for_one_second = gxTriggerTime + gxCooldownPeriod < millis();
+    gxEnabled = !arm_has_not_moved_for_one_second;
+    
+    if(20 < mahony.getRoll()){
+        gxEnabled = true;
+    }
+
+
+    if (current_arm_angle < 10 || 80 < current_arm_angle) {
+        disable_motor();
         emergency_stop = true;
     }
 
+}
+
+
+void algorithm3(){
+    /* Algoritme 3
+    Het idee is om de bovenarm alvast in de gewenste positie te brengen vooor de reiktaak en dat de onderarm daarna ingesteld kan worden.
+    Dit zou bijvoorbeeld kunnen door een snelle op en neer bewegen van de bovenarm. eventuel een neer-op bewegen voor de andere kant op.
+    er moet dan nog uitgezocht worden hoe de beweging gestop kan worden
+    */
+    const float omegaXExtendThreshold = 200;
+    const float omegaXFlexThreshold = -200;
+
+    if (mahony.getOmegaX() > omegaXExtendThreshold){
+        turn_steps_per_second(20000,0);
+        omegaXExtendTriggerTime = millis();
+        // gxExtendTriggered = true;
+    }
+
+    if(mahony.getOmegaX() > omegaXExtendThreshold && omegaXExtendTriggerTime + gxCooldownPeriod < millis()){ //&& gxExtendTriggered
+        disable_motor();
+        //gxExtendTriggered = false;
+    }
+
+    if (mahony.getOmegaX() > omegaXFlexThreshold){
+        turn_steps_per_second(20000,1);
+        omegaXFlexTriggerTime = millis();
+    }
+
+    if(mahony.getOmegaX() > omegaXFlexThreshold && omegaXFlexTriggerTime + gxCooldownPeriod < millis()){ //&& gxExtendTriggered
+        disable_motor();
+    }
+
+}
+
+void test_run(int motor_run_counter){
+    if (motor_run_counter < 50) {  
+        turn_steps_per_second(31200, 0);  // Run motor forward for 1 second
+        motor_run_counter++;
+    } 
+    else if(motor_run_counter > 49 && motor_run_counter < 100){
+        turn_steps_per_second(0, 0);  // Stop motor for 1 second
+        motor_run_counter++;
+    }
+    else if (motor_run_counter > 99 && motor_run_counter < 150) {
+        turn_steps_per_second(31400, 1);  // Run motor in reverse for 1 second
+        motor_run_counter++;
+    } 
+    else if (motor_run_counter > 149 && motor_run_counter < 200) {
+        turn_steps_per_second(0, 1);  // Run motor in reverse for 1 second
+        motor_run_counter++;
+    } 
+    else {
+        motor_run_counter = 0;  // Reset counter to restart cycle
+    }
 }
 
 void wait_for_user_to_give_L_R(){
@@ -422,73 +467,6 @@ void wait_for_user_to_give_L_R(){
 void setup() {
     Serial.begin(115200);
     Wire.begin();
-
-
-    // delay(2000);
-    // Serial.println("beginning");
-    // setup_encoder();
-    // // Serial.println("encoder done");
-    // delay(500); 
-    // setup_bluetooth();
-    // delay(500); 
-    // connect_bluetooth_to_pc();
-    // delay(500); if(Serial) {
-    //     send_text_to_pc("Serial available!");
-    // }else{
-    //     send_text_to_pc("Serial not available!");
-    // }
-
-    // delay(500); run_emiel_motor_test(); while(1);
-
-    //delay(500); setup_encoder();
-   // delay(500); setup_motor_control();
-    
-
-   // bool EXTEND = LOW; // 0
-   // bool FLEX = HIGH; // current kleiner dan target --> flexen
-
-    // float arm_angle = encoder_to_arm_angle(encoder.readAngle());
-    // bool direction = FLEX;
-    // if(arm_angle < 40){
-        // direction = EXTEND;
-    // }
-    // turn_steps_per_second(25000, direction);
-
-    // while(true){
-
-    //     // Get current arm angle
-    //     arm_angle = encoder_to_arm_angle(encoder.readAngle());
-    //     if (arm_angle < 10 || 80 < arm_angle) {
-    //         turn_steps_per_second(0, direction);
-    //         disable_motor();
-    //         break;
-    //     }
-
-    //     if(arm_angle < 20){
-    //         direction = FLEX;
-    //         turn_steps_per_second(0, direction);
-    //         delay(200);
-    //         turn_steps_per_second(30000, direction);
-    //     }
-
-    //     if(75 < arm_angle){
-    //         direction = EXTEND;
-    //         turn_steps_per_second(0, direction);
-    //         delay(200);
-    //         turn_steps_per_second(30000, direction);
-    //     }
-    //     delay(100);
-    //     send_data_to_pc_f("Current arm angle: %.2f", arm_angle);
-
-    // }
-    // while(1);
-    
-    // disable_motor();
-    // Serial.println("done");
-    // send_text_to_pc("Done!");
-
-    // while(true);
-
     delay(500); 
     setup_bluetooth();
     delay(500); 
@@ -498,12 +476,11 @@ void setup() {
     delay(100); 
     wait_for_user_to_give_L_R();
     delay(500); 
-    setup_encoder();
+    // setup_encoder();
     delay(500); 
     setup_imu();
     delay(500); 
     setup_motor_control();
-    // setup_motor();
     delay(500); 
     send_text_to_pc_f("Setup completed after %d ms!", millis());
 
@@ -524,15 +501,32 @@ void loop() {
     if (BLUETOOTH) {
         timestamp_next_loop = millis() + LOOP_INTERVAL;
 
-        while (true) {
+        while (!emergency_stop) {
             if (timestamp_next_loop <= millis()) {
                 while (timestamp_next_loop <= millis()) {
                     timestamp_next_loop += LOOP_INTERVAL;
                 }
+                
+                // if (!encoder.begin()){
+                //     disable_motor();
+                //     emergency_stop = true;
+                //     Serial.println("Encoder failure!");
+                //     send_text_to_pc("Encoder failure!");
+                //     break;
+                // }
 
-                while(!BLUETOOTH.connected()){
-                    // do nothing. keep checking.
-                }; 
+                // /* EMERGENCY BREAK */
+                // current_encoder_value = encoder.readAngle();
+                // current_arm_angle = encoder_to_arm_angle(current_encoder_value);
+                // if (current_arm_angle < 10 || 80 < current_arm_angle) {
+                //     disable_motor();
+                //     emergency_stop = true;
+                //     break;
+                // }
+
+                // while(!BLUETOOTH.connected()){
+                //     // do nothing. keep checking.
+                // }; 
 
                 // Read the IMU data
                 IMU.readAcceleration(acc[0], acc[1], acc[2]);
@@ -548,11 +542,12 @@ void loop() {
                 //drift_prevention(q0, q1, q2, q3, acc[0], acc[1], acc[2], gyr[0], gyr[1], gyr[2]);
 
 
-                current_encoder_value = encoder.readAngle();
-                current_arm_angle = encoder_to_arm_angle(current_encoder_value);
+                // algorithm1(gyr[0], current_arm_angle);
+                // algorithm2(gyr[0], acc[1], current_arm_angle);
+                // test_run(motor_run_counter);
+              
+                
 
-                //algorithm1(gyr[0], current_arm_angle);
-                algorithm2(gyr[0], acc[1], current_arm_angle);
                 float rollMahony = mahony.getRoll(); // Fetch roll value
                 
                 send_data_to_pc_f("L %d |E %.2f |A %+.2f %+.2f %+.2f |G %+.3f %+.3f %+.3f |C %d => %.3f° |R %.3f | P %d",

@@ -25,9 +25,12 @@ private:
 	float integralFBx, integralFBy, integralFBz;  // integral error terms scaled by Ki
 	float invSampleFreq;
 	float roll, pitch, yaw;
+	float omega_x, omega_y, omega_z;
 	char anglesComputed;
+	char angularVelocityComputed;
 	static float invSqrt(float x);
 	void computeAngles();
+	void computeAngularVelocity();
 
 //-------------------------------------------------------------------------------------------
 // Function declarations
@@ -61,12 +64,25 @@ public:
 		if (!anglesComputed) computeAngles();
 		return yaw;
 	}
-    void getQuaternion(float &q0_out, float &q1_out, float &q2_out, float &q3_out) {
+    float getOmegaX(){
+		if (!angularVelocityComputed) computeAngularVelocity();
+		return omega_x;
+	}
+	float getOmegaY(){
+		if (!angularVelocityComputed) computeAngularVelocity();
+		return omega_y;
+	}
+	float getOmegaZ(){
+		if (!angularVelocityComputed) computeAngularVelocity();
+		return omega_z;
+	}
+	void getQuaternion(float &q0_out, float &q1_out, float &q2_out, float &q3_out) {
     q0_out = q0;
     q1_out = q1;
     q2_out = q2;
     q3_out = q3;
-}
+	}
+
 };
 
 #endif
