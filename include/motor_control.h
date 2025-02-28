@@ -1,5 +1,5 @@
-#ifndef MOTOR_STUFF_H
-#define MOTOR_STUFF_H
+#ifndef MOTOR_CONTROL_H
+#define MOTOR_CONTROL_H
 
 #include <stdint.h>
 
@@ -9,4 +9,4 @@ void setup_motor_control();
 void enable_motor();
 void disable_motor();
 
-#endif // MOTOR_STUFF_H
+#endif // MOTOR_CONTROL_H

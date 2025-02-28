@@ -1,5 +1,5 @@
-#ifndef BLUETOOTH_STUFF_H
-#define BLUETOOTH_STUFF_H
+#ifndef BLUETOOTH_H
+#define BLUETOOTH_H
 
 #include <ArduinoBLE.h>
 
@@ -18,4 +18,4 @@ void send_text_to_pc_f(const char* format, ...);
 void send_data_to_pc_f(const char* format, ...);
 
 
-#endif // BLUETOOTH_STUFF_H
+#endif // BLUETOOTH_H

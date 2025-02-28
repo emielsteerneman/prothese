@@ -4,13 +4,12 @@
 #include <Serial.h>
 #include <Wire.h>
 #include <AS5600.h>
-//#include <AccelStepper.h>
 #include <MahonyAHRS.h>
 
 #include "stdint.h"
 #include "IMUCalibration.h"
-#include "bluetooth_stuff.h"
-#include "motor_stuff.h"
+#include "bluetooth.h"
+#include "motor_control.h"
 
 // define pins
 #define MS1_PIN 8
@@ -18,9 +17,6 @@
 #define MOTOR_STEP_PIN 3
 #define MOTOR_DIR_PIN 2
 #define MOTOR_ENABLE_PIN 9
-
-// motor object
-//AccelStepper stepper(AccelStepper::DRIVER, MOTOR_STEP_PIN, MOTOR_DIR_PIN); 
 
 // encoder object
 AS5600 encoder;
@@ -476,7 +472,7 @@ void setup() {
     delay(100); 
     wait_for_user_to_give_L_R();
     delay(500); 
-    // setup_encoder();
+    setup_encoder();
     delay(500); 
     setup_imu();
     delay(500); 
@@ -560,9 +556,8 @@ void loop() {
                 /* P */ emergency_stop);
             }
 
-            //stepper.run();
-        } // while true
-    } // if (bluetooth)
+        } // while !emergency_stop
+}     // if (bluetooth)
     else {
         Serial.println("NOT BLUETOOTH CONNECTED!");
     }

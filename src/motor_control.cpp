@@ -1,11 +1,11 @@
-#include "motor_stuff.h"
+#include "motor_control.h"
 
 #include <ArduinoBLE.h>
 #include <Serial.h>
 #include <nrfx_pwm.h>
 #include <stdint.h>
 
-#include "bluetooth_stuff.h"
+#include "bluetooth.h"
 
 #define MS1_PIN 8
 #define MS2_PIN 7
@@ -103,51 +103,4 @@ bool turn_steps_per_second(uint32_t steps_per_second, uint8_t dir){
     enable_motor();
 
     return true;
-}
-
-void test1_pwm(){
-    setup_motor_control();
-    delay(1000);
-    
-    int direction = 1;
-    int dir = LOW;
-
-    uint32_t steps_per_second = 1000;
-    while(true){
-
-        steps_per_second += direction * 200;
-        if(steps_per_second < 1000 || 50000 < steps_per_second){
-            direction = -direction;
-            if(steps_per_second < 1000){
-                if(dir == LOW){
-                    dir = HIGH;
-                } else {
-                    dir = LOW;
-                }
-                // digitalWrite(MOTOR_DIR_PIN, dir);
-            }
-        }
-        turn_steps_per_second(steps_per_second, dir);
-        delay(100);
-        // Serial.print("Hello from emiel_motor_test!: ");
-        // Serial.print(steps_per_second);
-        // Serial.print(" .top_value: ");
-        // Serial.print(PWM_CONFIGURATION.top_value);
-        // Serial.print(" Duty cycle: ");
-        // Serial.println(duty_cycle);
-
-        send_text_to_pc_f("Hello from emiel_motor_test!: %d .top_value: %d Duty cycle: %d", steps_per_second, PWM_CONFIGURATION.top_value, duty_cycle);
-    }
-}
-
-void run_emiel_motor_test(){
-
-    if(!Serial){
-        Serial.begin(115200);
-    }
-
-    delay(1000);
-    Serial.println("Hello from emiel_motor_test!");
-
-    test1_pwm();    
 }
