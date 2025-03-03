@@ -43,6 +43,7 @@ const uint32_t LOOP_INTERVAL = 20; // in ms
 const int numReadings = 150;
 const int numRounds = 40;    // Number of rounds to store quaternion values
 const float MAX_SPEED = 31400.0;//17900.0;
+const float MIN_SPEED = 10000.0;
 // const float ACCELERATION = 50000.0;//50000.0; //100
 const float ERROR_MARGIN_ANGLE = 0.5;
 // const float STEPS_PER_DEGREE = 10666.67;
@@ -159,15 +160,20 @@ void loop() {
 
                 // **PID-berekening uitvoeren**
                 motorPID.Compute();
-                uint32_t motorSpeed = constrain(output, 0, MAX_SPEED); // Limit to motor max speed  
+                uint32_t motorSpeed = constrain(output, MIN_SPEED, MAX_SPEED); // Limit to motor max speed  
                 turn_steps_per_second(motorSpeed, 0);  // Set motor speed
                 
 
                 // send_data_to_pc_f("Setpoint %f |SPEED: %.2f |Output %f | Emergency %d",
 
-                send_data_to_pc_f("SPEED: %.2f",
+                
+                unsigned long timestamp = millis();
+
+                send_data_to_pc_f("TIME: %lu | SPEED: %.2f",
                 // /* L */ setpoint, 
-                /* E */ input);
+                /* E */ 
+                timestamp,
+                input);
                 // /* A */ output,
                 // /* P */ emergency_stop);
             }

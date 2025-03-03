@@ -26,7 +26,7 @@ async def writer_thread(filename):
     print(f"[writer_thread] Writing to {filename}")
     async with aiofiles.open(filename, 'w') as f:
         while True:
-            line = await QUEUE_WRITE.get() 
+            line = await QUEUE_WRITE.get()
             if line is None:
                 print("[writer_thread] Stopping")
                 QUEUE_WRITE.task_done()
@@ -36,19 +36,25 @@ async def writer_thread(filename):
 
 def notification_handler(sender, data):
     text = data.decode('utf-8', errors='ignore')
-    if text.startswith("TEXTINIT") or text.startswith("TEXT"):
-        print(f"[Arduino -> Python] {text[4:]}                      ")
-        return
 
-    now = time.time()
-    global QUEUE_TIME
-    QUEUE_TIME.append(now)
+    # Debugging raw messages
+    print(f"\n[Arduino -> Python] {text.strip()}")  
 
     try:
-        if "SPEED:" in text:
-            speed_value = float(text.split("SPEED:")[1].strip())
-            SPEED_DATA.append(speed_value)
-            TIME_DATA.append(now - start_time)
+        if "TIME:" in text and "SPEED:" in text:
+            parts = text.split("|")
+            time_part = [p for p in parts if "TIME:" in p]
+            speed_part = [p for p in parts if "SPEED:" in p]
+
+            if time_part and speed_part:
+                timestamp = int(time_part[0].split("TIME:")[1].strip())  # Extract timestamp
+                speed_value = float(speed_part[0].split("SPEED:")[1].strip())  # Extract speed
+
+                TIME_DATA.append(timestamp / 1000.0)  # Convert from ms to seconds
+                SPEED_DATA.append(speed_value)
+
+                # Log the values
+            QUEUE_WRITE.put_nowait(f"{timestamp},{speed_value}")
     except ValueError:
         print(f"⚠️ Could not parse: {text}")
 
@@ -74,8 +80,10 @@ async def ble_task():
         print("[main] No Arduino device found.")
         return
 
-    os.makedirs("logs", exist_ok=True)
-    filename_log = os.path.join("logs", f"log_{time.strftime('%Y%m%d_%H%M%S')}.txt")
+
+    # os.makedirs("logs", exist_ok=True)
+    # filename_log = os.path.join("logs", f"log_{time.strftime('%Y%m%d_%H%M%S')}.txt")
+
 
     print(f"[main] Connecting to {address_to_connect}...")
     async with BleakClient(address_to_connect) as client:
@@ -131,16 +139,26 @@ async def plot_task():
 #         await asyncio.sleep(0.005)
 
 async def main():
-    """ Run BLE communication and plotting concurrently """
+    """ Run BLE communication, plotting, and logging concurrently """
+    os.makedirs("logs", exist_ok=True)
+    filename_log = os.path.join("logs", f"log_{time.strftime('%Y%m%d_%H%M%S')}.txt")
+
+    # Start the writer thread
+    writer = asyncio.create_task(writer_thread(filename_log))
+
+    # Start BLE communication and plotting
     ble = asyncio.create_task(ble_task())
     plot = asyncio.create_task(plot_task())
-    # gui = asyncio.create_task(matplotlib_loop())  # Keeps Matplotlib GUI running
-    # await asyncio.gather(ble, plot, gui)
 
+    # Wait for BLE & plot tasks to finish
     await asyncio.gather(ble, plot)
 
-if __name__ == "__main__":
-    asyncio.run(main())
+    # Ensure writer_thread finishes properly
+    await writer
+
+# Run the main event loop
+asyncio.run(main())
+
 
 
 #Thread is configured for Windows GUI but callbacks are not working.
