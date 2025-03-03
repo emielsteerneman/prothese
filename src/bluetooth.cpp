@@ -77,12 +77,20 @@ void send_text_to_pc_f(const char* format, ...){
     ArduinoToPc.writeValue(send_buffer, sizeof(send_buffer));
 }
 
+// void send_data_to_pc_f(const char* format, ...){
+//     // Do all the magic string stuff that places the formatted string into the buffer
+//     va_list args;
+//     va_start(args, format);
+//     vsnprintf(send_buffer, sizeof(send_buffer), format, args);
+//     va_end(args);
+//     // Send the buffer to the PC via Bluetooth
+//     ArduinoToPc.writeValue(send_buffer, sizeof(send_buffer));
+// }
+
 void send_data_to_pc_f(const char* format, ...){
-    // Do all the magic string stuff that places the formatted string into the buffer
     va_list args;
     va_start(args, format);
     vsnprintf(send_buffer, sizeof(send_buffer), format, args);
     va_end(args);
-    // Send the buffer to the PC via Bluetooth
     ArduinoToPc.writeValue(send_buffer, sizeof(send_buffer));
 }
