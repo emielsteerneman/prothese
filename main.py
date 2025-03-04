@@ -94,7 +94,7 @@ async def main():
     # Boot up the writer thread
     os.makedirs("logs", exist_ok=True)
     filename_log = os.path.join("logs", f"log_{time.strftime('%Y%m%d_%H%M%S')}.txt")
-    # writer_task = asyncio.create_task(writer_thread(filename_log))
+    writer_task = asyncio.create_task(writer_thread(filename_log))
 
     # Connect to the BLE device
     print(f"[main] Connecting to {address_to_connect}...")

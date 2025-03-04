@@ -13,8 +13,8 @@
 #define MOTOR_ENABLE_PIN 9
 #define NRFX_STEP_PIN NRF_GPIO_PIN_MAP(1,12)  // Use Arduino pin D14 (nRF GPIO P0.04) // 4
 
-#define LOW  0  // This is not needed but it removes the dumb incorrect IntelliSense error
-#define HIGH 1  // This is not needed but it removes the dumb incorrect IntelliSense error
+#define LOW  0  // This is not needed but it removes the incorrect IntelliSense error
+#define HIGH 1  // This is not needed but it removes the incorrect IntelliSense error
 
 nrfx_pwm_t PWM_INSTANCE = NRFX_PWM_INSTANCE(0);
 nrfx_pwm_config_t PWM_CONFIGURATION = {0};

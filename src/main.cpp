@@ -63,6 +63,16 @@ unsigned long omegaXExtendTriggerTime = 0;
 
 // variables for test run
 int motor_run_counter = 0;
+uint32_t steps_per_second = 28000;
+bool speed_increased = false;
+int direction = 0;
+
+// **Tijd & Encoder Variabelen**
+unsigned long lastTime = 0;
+float lastAngle = 0;
+const float gear_ratio = 1.0;  // Pas aan als je een overbrenging hebt
+
+float encoder_speed = 0;
 
 void setup_imu() {
     Serial.println("Beginning IMU!");
@@ -408,6 +418,65 @@ void test_run(int motor_run_counter){
     }
 }
 
+float test_run2(int& motor_run_counter, uint32_t& steps_per_second) {
+    // Run motor continuously
+    turn_steps_per_second(steps_per_second, 1);
+
+    // Every second (50 cycles), increase speed
+    if (motor_run_counter >= 50) {  
+        motor_run_counter = 0;  // Reset counter
+        steps_per_second += 100;  // Increase speed
+    } else {
+        motor_run_counter++;  // Increment counter
+    }
+
+    return steps_per_second;
+}
+
+int test_run3(float& current_arm_angle, uint32_t& steps_per_second, int& direction, bool& speed_increased) {
+    // Change direction when limits are reached
+    if (current_arm_angle >= 80) {
+        direction = 1; // Move backward
+        speed_increased = false; // Reset speed increase flag
+    } 
+    else if (current_arm_angle <= 10 && !speed_increased) {
+        direction = 0; // Move forward
+        steps_per_second -= 100; // Increase speed only once per cycle
+        speed_increased = true; // Prevent continuous increases
+    }
+
+    // Move motor in the current direction
+    turn_steps_per_second(steps_per_second, direction);
+
+    return steps_per_second;
+}
+
+// float test_run2(int& motor_run_counter, float& steps_per_second){
+
+//     if (motor_run_counter < 50) {  
+//         turn_steps_per_second(steps_per_second, 1);  // Run motor forward for 1 second
+//         motor_run_counter++;
+//     } 
+//     // else if(motor_run_counter > 49 && motor_run_counter < 100){
+//     //     turn_steps_per_second(0, 1);  // Stop motor for 1 second
+//     //     motor_run_counter++;
+//     // }
+//     // else if (motor_run_counter > 99 && motor_run_counter < 150) {
+//     //     turn_steps_per_second(steps_per_second, 1);  // Run motor in reverse for 1 second
+//     //     motor_run_counter++;
+//     // } 
+//     // else if (motor_run_counter > 149 && motor_run_counter < 200) {
+//     //     turn_steps_per_second(0, 1);  // Stop motor in reverse for 1 second
+//     //     motor_run_counter++;
+//     // } 
+//     else {
+//         motor_run_counter = 0;  // Reset counter to restart cycle
+//         steps_per_second += 100;  // Increase steps per second by 100 after each cycle
+//     }
+//     return steps_per_second;
+// }
+
+
 void wait_for_user_to_give_L_R(){
     // This needs the bluetooth to be running
 
@@ -468,19 +537,19 @@ void setup() {
     delay(500); 
     connect_bluetooth_to_pc();
     
-    Serial.println("Waiting for user to give 'L' or 'R'");
+    // Serial.println("Waiting for user to give 'L' or 'R'");
     delay(100); 
-    wait_for_user_to_give_L_R();
+    // wait_for_user_to_give_L_R();
     delay(500); 
     setup_encoder();
     delay(500); 
-    setup_imu();
+    // setup_imu();
     delay(500); 
     setup_motor_control();
     delay(500); 
     send_text_to_pc_f("Setup completed after %d ms!", millis());
 
-    mahony.begin(50);
+    // mahony.begin(50);
 }
 
 // continuous loop
@@ -498,40 +567,51 @@ void loop() {
         timestamp_next_loop = millis() + LOOP_INTERVAL;
 
         while (!emergency_stop) {
+
             if (timestamp_next_loop <= millis()) {
                 while (timestamp_next_loop <= millis()) {
                     timestamp_next_loop += LOOP_INTERVAL;
                 }
                 
-                // if (!encoder.begin()){
-                //     disable_motor();
-                //     emergency_stop = true;
-                //     Serial.println("Encoder failure!");
-                //     send_text_to_pc("Encoder failure!");
-                //     break;
-                // }
+                if (!encoder.begin()){
+                    disable_motor();
+                    emergency_stop = true;
+                    Serial.println("Encoder failure!");
+                    send_text_to_pc("Encoder failure!");
+                    break;
+                }
 
-                // /* EMERGENCY BREAK */
+                /* EMERGENCY BREAK */
+                current_encoder_value = encoder.readAngle();
+                current_arm_angle = encoder_to_arm_angle(current_encoder_value);
+                if (current_arm_angle < 5 || 88 < current_arm_angle) {
+                    disable_motor();
+                    emergency_stop = true;
+                    break;
+                }
+                unsigned long now = millis();
+
                 // current_encoder_value = encoder.readAngle();
                 // current_arm_angle = encoder_to_arm_angle(current_encoder_value);
-                // if (current_arm_angle < 10 || 80 < current_arm_angle) {
-                //     disable_motor();
-                //     emergency_stop = true;
-                //     break;
-                // }
-
+                float deltaAngle = current_arm_angle - lastAngle;  // Hoekverandering
+                lastAngle = current_arm_angle;
+                
+                // **Bereken snelheid in stappen per seconde**
+                float deltaTime = (now - lastTime) / 1000.0; // Convert to seconds
+                encoder_speed = (deltaAngle * gear_ratio) / deltaTime; // Steps per second
+                lastTime = now;
                 // while(!BLUETOOTH.connected()){
                 //     // do nothing. keep checking.
                 // }; 
 
                 // Read the IMU data
-                IMU.readAcceleration(acc[0], acc[1], acc[2]);
-                IMU.readGyroscope(gyr[0], gyr[1], gyr[2]);
+                // IMU.readAcceleration(acc[0], acc[1], acc[2]);
+                // IMU.readGyroscope(gyr[0], gyr[1], gyr[2]);
                 // Transform the IMU data
-                transform_acc_data(acc[0], acc[1], acc[2]);
-                transform_gyr_data(gyr[0], gyr[1], gyr[2]);
+                // transform_acc_data(acc[0], acc[1], acc[2]);
+                // transform_gyr_data(gyr[0], gyr[1], gyr[2]);
                 // Update the Mahony filter
-                mahony.updateIMU(gyr[0], gyr[1], gyr[2], acc[0], acc[1], acc[2]);
+                // mahony.updateIMU(gyr[0], gyr[1], gyr[2], acc[0], acc[1], acc[2]);
                 // Get the quaternion values
                 //mahony.getQuaternion(q0, q1, q2, q3); // gaat dit wel goed zo? of kan ik beter een float maken van updateIMU?
                 // Drift prevention
@@ -540,20 +620,22 @@ void loop() {
 
                 // algorithm1(gyr[0], current_arm_angle);
                 // algorithm2(gyr[0], acc[1], current_arm_angle);
-                // test_run(motor_run_counter);
+                uint32_t motor_speed = test_run3(current_arm_angle, steps_per_second, direction, speed_increased);
               
-                
+                unsigned long timestamp = millis();
 
-                float rollMahony = mahony.getRoll(); // Fetch roll value
+                // float rollMahony = mahony.getRoll(); // Fetch roll value
                 
-                send_data_to_pc_f("L %d |E %.2f |A %+.2f %+.2f %+.2f |G %+.3f %+.3f %+.3f |C %d => %.3f° |R %.3f | P %d",
-                /* L */ loop_counter, 
-                /* E */ angle_error,
-                /* A */ acc[0], acc[1], acc[2],
-                /* G */ gyr[0], gyr[1], gyr[2],
-                /* C */ current_encoder_value, current_arm_angle,
-                /* R */ rollMahony,
-                /* P */ emergency_stop);
+                send_data_to_pc_f("%lu,%f,%d,%f\n", timestamp, current_arm_angle, motor_speed, encoder_speed); // motor_speed,
+
+                // send_data_to_pc_f("L %d |E %.2f |A %+.2f %+.2f %+.2f |G %+.3f %+.3f %+.3f |C %d => %.3f° |R %.3f | P %d",
+                // /* L */ loop_counter, 
+                // /* E */ angle_error,
+                // /* A */ acc[0], acc[1], acc[2],
+                // /* G */ gyr[0], gyr[1], gyr[2],
+                // /* C */ current_encoder_value, current_arm_angle,
+                // // /* R */ rollMahony,
+                // /* P */ emergency_stop);
             }
 
         } // while !emergency_stop
