@@ -43,7 +43,7 @@ const uint32_t LOOP_INTERVAL = 20; // in ms
 const int numReadings = 150;
 const int numRounds = 40;    // Number of rounds to store quaternion values
 const float MAX_SPEED = 31400.0;//17900.0;
-const float MIN_SPEED = 10000.0;
+const float MIN_SPEED = 20000.0;
 // const float ACCELERATION = 50000.0;//50000.0; //100
 const float ERROR_MARGIN_ANGLE = 0.5;
 // const float STEPS_PER_DEGREE = 10666.67;
@@ -113,7 +113,7 @@ void setup() {
     delay(500); 
     setup_motor_control();
     delay(500); 
-    setpoint = 12;  // Gewenste snelheid in stappen per seconde
+    setpoint = 12.5;  // Gewenste snelheid in stappen per seconde
     motorPID.SetMode(AUTOMATIC);
     send_text_to_pc_f("Setup completed after %d ms!", millis());
 
@@ -169,7 +169,7 @@ void loop() {
                 
                 unsigned long timestamp = millis();
 
-                send_data_to_pc_f("TIME: %lu | SPEED: %.2f",
+                send_data_to_pc_f("%lu,%.2f",
                 // /* L */ setpoint, 
                 /* E */ 
                 timestamp,
