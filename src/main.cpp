@@ -26,10 +26,17 @@ AS5600 encoder;
 // Mahony object
 Mahony mahony;
 
+// moving average filter
+#define FILTER_SIZE 5  // Number of values for moving average
+
+float velocity_buffer[FILTER_SIZE] = {0};  // Circular buffer for velocity values
+int velocity_index = 0;  // Index for buffer
+
+
 
 // *PID Variabelen*
 double setpoint, input, output;
-double Kp = 1.0, Ki = 0.0, Kd = 0.0;  // Tuning parameters (pas aan voor optimale prestaties)
+double Kp = 5.0, Ki = 0.5, Kd = 0.2;  // Tuning parameters (pas aan voor optimale prestaties)
 PID motorPID(&input, &output, &setpoint, Kp, Ki, Kd, DIRECT);
 
 // **Tijd & Encoder Variabelen**
@@ -43,7 +50,7 @@ const uint32_t LOOP_INTERVAL = 20; // in ms
 const int numReadings = 150;
 const int numRounds = 40;    // Number of rounds to store quaternion values
 const float MAX_SPEED = 31400.0;//17900.0;
-const float MIN_SPEED = 20000.0;
+const float MIN_SPEED = 21000.0;
 // const float ACCELERATION = 50000.0;//50000.0; //100
 const float ERROR_MARGIN_ANGLE = 0.5;
 // const float STEPS_PER_DEGREE = 10666.67;
@@ -113,8 +120,9 @@ void setup() {
     delay(500); 
     setup_motor_control();
     delay(500); 
-    setpoint = 12.5;  // Gewenste snelheid in stappen per seconde
+    setpoint = 8.5;  // Gewenste snelheid in stappen per seconde
     motorPID.SetMode(AUTOMATIC);
+    motorPID.SetOutputLimits(MIN_SPEED, MAX_SPEED);  
     send_text_to_pc_f("Setup completed after %d ms!", millis());
 
 }
@@ -143,19 +151,51 @@ void loop() {
                     break;
                 }
                 
+                 current_encoder_value = encoder.readAngle();
+                 current_arm_angle = encoder_to_arm_angle(current_encoder_value);
 
-                //PID
-    
+                /* EMERGENCY BREAK */
+                 if (current_arm_angle < 5 || 88 < current_arm_angle) {
+                     disable_motor();
+                     emergency_stop = true;
+                     break;
+                 }
 
-                current_encoder_value = encoder.readAngle();
-                current_arm_angle = encoder_to_arm_angle(current_encoder_value);
-                float deltaAngle = current_arm_angle - lastAngle;  // Hoekverandering
-                lastAngle = current_arm_angle;
+
+                    // Read encoder
+                    // current_encoder_value = encoder.readAngle();
+                    // current_arm_angle = encoder_to_arm_angle(current_encoder_value);
+                    float deltaAngle = current_arm_angle - lastAngle;  // Hoekverandering
+                    lastAngle = current_arm_angle;
+                    
+                    // **Bereken snelheid in graden per seconde**
+                    float deltaTime = (now - lastTime) / 1000.0; // Convert to seconds
+                    // input = (deltaAngle * gear_ratio) / deltaTime; // Steps per second
+                    lastTime = now;
+                    // Compute raw velocity
+                    float raw_velocity = (deltaAngle * gear_ratio) / deltaTime;
+
+                    // Store value in moving average buffer
+                    velocity_buffer[velocity_index] = raw_velocity;
+                    velocity_index = (velocity_index + 1) % FILTER_SIZE; // Circular buffer
+
+                    // Compute moving average
+                    float sum = 0;
+                    for (int i = 0; i < FILTER_SIZE; i++) {
+                        sum += velocity_buffer[i];
+                    }
+                    input = sum / FILTER_SIZE;  // Smoothed velocity
+
+
+                // current_encoder_value = encoder.readAngle();
+                // current_arm_angle = encoder_to_arm_angle(current_encoder_value);
+                // float deltaAngle = current_arm_angle - lastAngle;  // Hoekverandering
+                // lastAngle = current_arm_angle;
                 
                 // **Bereken snelheid in stappen per seconde**
-                float deltaTime = (now - lastTime) / 1000.0; // Convert to seconds
-                input = (deltaAngle * gear_ratio) / deltaTime; // Steps per second
-                lastTime = now;
+                // float deltaTime = (now - lastTime) / 1000.0; // Convert to seconds
+                // input = (deltaAngle * gear_ratio) / deltaTime; // Steps per second
+                // lastTime = now;
 
 
                 // **PID-berekening uitvoeren**
@@ -169,10 +209,11 @@ void loop() {
                 
                 unsigned long timestamp = millis();
 
-                send_data_to_pc_f("%lu,%.2f",
+                send_data_to_pc_f("%lu,%d,%.2f",
                 // /* L */ setpoint, 
                 /* E */ 
-                timestamp,
+                timestamp, 
+                motorSpeed,
                 input);
                 // /* A */ output,
                 // /* P */ emergency_stop);

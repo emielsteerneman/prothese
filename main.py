@@ -58,7 +58,7 @@ def notification_handler(sender, data):
         time_diff = QUEUE_TIME[-1] - QUEUE_TIME[0]
         msg_rate = len(QUEUE_TIME) / time_diff
 
-    print(f"\r[Arduino ->  Python] {msg_rate:5.1f}Hz | {text}        ", end="")
+    print(f"[Arduino ->  Python] {msg_rate:5.1f}Hz | {text}        ")
 
     # Add message to queue so that the writer task can write it to the log file
     loop = asyncio.get_running_loop()
