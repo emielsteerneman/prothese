@@ -74,6 +74,8 @@ const float gear_ratio = 1.0;  // Pas aan als je een overbrenging hebt
 
 float encoder_speed = 0;
 
+int mode = 10;
+
 void setup_imu() {
     Serial.println("Beginning IMU!");
     send_text_to_pc("Beginning IMU!");
@@ -265,105 +267,102 @@ float encoder_to_arm_angle(uint16_t encoder_value) {
     return encoder_degrees - ENCODER_TO_ARM_OFFSET_DEGREES;
 }
 
-void algorithm1(float gx, float current_arm_angle){ // moet gx niet een pointer worden?
+void algorithm1(float& gx, float current_arm_angle){ // moet gx niet een pointer worden?
+    /* Algorithm 1
+    When the arm is brought to roll > 20 degrees, the elbow angle will increase until the users removes it from this position.
+    The arm can then move freely until gx is triggered or until it is back in this > 20 degrees position. 
+    When gx is triggered by a fast short movement downwards of the arm, the arm angle reduces until it is in the > position.
+    If it stays in this position for longer than one second, the arm angle will increase again.
+    A cooldownperiod of 0.5 seconds has been build in, to prevent the triggering of the roll right after gx has been triggered. */
 
-    if (gx > 200){ 
+    if (gx < -200){ 
         gxTriggered = true;  // Set the flag to true
         gxTriggerTime = millis(); 
     }
 
     if (gxTriggered){
-        if (current_arm_angle > 10) {
-            target_arm_angle = 10;
+        if (current_arm_angle > 5) {
+            direction = 1; //target_arm_angle = 5;
+            turn_steps_per_second(20000, direction);
         }
 
-        if ((millis() - gxTriggerTime > gxCooldownPeriod) && mahony.getRoll() < -20 && current_arm_angle < 60){
-            target_arm_angle = current_arm_angle;
+        if ((millis() - gxTriggerTime > gxCooldownPeriod) && mahony.getRoll() > 20 ){ //&& current_arm_angle < 85
+            disable_motor();//target_arm_angle = current_arm_angle;
             gxTriggered = false;
             rollTriggerTime = millis(); 
         }
     } else { //!gxTriggered
-        if ((millis() - rollTriggerTime > rollCooldownPeriod) &&mahony.getRoll() < -20 && current_arm_angle < 60 /* degrees */) {
-            target_arm_angle += 0.5;
+        if ((millis() - rollTriggerTime > rollCooldownPeriod) &&mahony.getRoll() > 20 ) { //&& current_arm_angle < 85 /* degrees */
+            direction =0; //target_arm_angle += 0.5;
+            turn_steps_per_second(20000, direction);
+
         }else{
-            target_arm_angle = current_arm_angle;
+            disable_motor();//target_arm_angle = current_arm_angle;
         }
     }
 
-    target_arm_angle = constrain(target_arm_angle, 5, 85);
+    // target_arm_angle = constrain(target_arm_angle, 5, 85);
 
-    float angle_error = target_arm_angle - current_arm_angle;
-    bool target_reached = fabs(angle_error) < ERROR_MARGIN_ANGLE;
+    // float angle_error = target_arm_angle - current_arm_angle;
+    // bool target_reached = fabs(angle_error) < ERROR_MARGIN_ANGLE;
 
-    if (target_reached){
-        gxTriggered = false;
-        disable_motor();
-        // stepper.stop();
-        digitalWrite(MOTOR_ENABLE_PIN, HIGH);
-    } else {
-        digitalWrite(MOTOR_ENABLE_PIN, LOW);
-        //stepper.move(angle_error * STEPS_PER_DEGREE);
-        bool direction;
-        if (current_arm_angle < target_arm_angle){
-            direction = 0;  // FLEX
-        }
-        else {
-            direction = 1; // EXTEND
-        }
-        turn_steps_per_second(20000, direction);
-    }
-
-    if (current_arm_angle < 6 || 80 < current_arm_angle) {
-        disable_motor();
-        //stepper.stop();
-        digitalWrite(MOTOR_ENABLE_PIN, HIGH);
-        emergency_stop = true;
-    }
-    
+    // if (target_reached){
+    //     gxTriggered = false;
+    //     disable_motor();
+    // } else {
+    //     enable_motor();
+    //     bool direction;
+    //     if (current_arm_angle < target_arm_angle){
+    //         direction = 0;  // FLEX
+    //     }
+    //     else {
+    //         direction = 1; // EXTEND
+    //     }
+        // turn_steps_per_second(20000, direction);
+    // }   
 }
 
-void algorithm2(float gx, float ax,  float current_arm_angle) {
-    // na bereiken van roll threshold --> als gx de threshold overschrijft geldt het mapping syteem
-    // zodra gx onder de threshold, motor stop.
-    // als gx langer dan 1 seconde onder de threshol, motor/algoritme begint pas weer als roll threshold bereikt is
-    // zodra gx onder threshold, motor stopt. Binnen een seconde weer beweging? --> algoritme wordt doorgezet
+// void algorithm2(float gx, float ax,  float current_arm_angle) {
+//     // na bereiken van roll threshold --> als gx de threshold overschrijft geldt het mapping syteem
+//     // zodra gx onder de threshold, motor stop.
+//     // als gx langer dan 1 seconde onder de threshol, motor/algoritme begint pas weer als roll threshold bereikt is
+//     // zodra gx onder threshold, motor stopt. Binnen een seconde weer beweging? --> algoritme wordt doorgezet
     
-    // Define speed scaling factors
-    const float MIN_STEPS = 10000;   // Minimum motor speed
-    const float MAX_STEPS = 20000;  // Maximum motor speed
-    const float GYRO_THRESHOLD = 15;  // Minimum gx value to activate movement
+//     // Define speed scaling factors
+//     const float MIN_STEPS = 10000;   // Minimum motor speed
+//     const float MAX_STEPS = 20000;  // Maximum motor speed
+//     const float GYRO_THRESHOLD = 15;  // Minimum gx value to activate movement
 
-    // Determine speed based on gx magnitude
-    float motorSteps = map(abs(gx), 0, 40, MIN_STEPS, MAX_STEPS);  
-    motorSteps = constrain(motorSteps, MIN_STEPS, MAX_STEPS);  
+//     // Determine speed based on gx magnitude
+//     float motorSteps = map(abs(gx), 0, 40, MIN_STEPS, MAX_STEPS);  
+//     motorSteps = constrain(motorSteps, MIN_STEPS, MAX_STEPS);  
 
 
-    bool person_is_moving_arm = GYRO_THRESHOLD < abs(gx);
+//     bool person_is_moving_arm = GYRO_THRESHOLD < abs(gx);
 
-    if(person_is_moving_arm && gxEnabled){
-        gxTriggerTime = millis(); // Store the latest time the person moved his arm
-        turn_steps_per_second(motorSteps, gx < 0);
-    }
+//     if(person_is_moving_arm && gxEnabled){
+//         gxTriggerTime = millis(); // Store the latest time the person moved his arm
+//         turn_steps_per_second(motorSteps, gx < 0);
+//     }
 
-    if(!person_is_moving_arm){
-        disable_motor();
-    }
+//     if(!person_is_moving_arm){
+//         disable_motor();
+//     }
     
-    bool arm_has_not_moved_for_one_second = gxTriggerTime + gxCooldownPeriod < millis();
-    gxEnabled = !arm_has_not_moved_for_one_second;
+//     bool arm_has_not_moved_for_one_second = gxTriggerTime + gxCooldownPeriod < millis();
+//     gxEnabled = !arm_has_not_moved_for_one_second;
     
-    if(20 < mahony.getRoll()){
-        gxEnabled = true;
-    }
+//     if(20 < mahony.getRoll()){
+//         gxEnabled = true;
+//     }
 
 
-    if (current_arm_angle < 10 || 80 < current_arm_angle) {
-        disable_motor();
-        emergency_stop = true;
-    }
+//     if (current_arm_angle < 10 || 80 < current_arm_angle) {
+//         disable_motor();
+//         emergency_stop = true;
+//     }
 
-}
-
+// }
 
 void algorithm3(){
     /* Algoritme 3
@@ -376,23 +375,31 @@ void algorithm3(){
 
     if (mahony.getOmegaX() > omegaXExtendThreshold){
         turn_steps_per_second(20000,0);
+        mode = 0;
         omegaXExtendTriggerTime = millis();
         // gxExtendTriggered = true;
     }
 
     if(mahony.getOmegaX() > omegaXExtendThreshold && omegaXExtendTriggerTime + gxCooldownPeriod < millis()){ //&& gxExtendTriggered
         disable_motor();
+        mode = 1;
         //gxExtendTriggered = false;
     }
 
     if (mahony.getOmegaX() > omegaXFlexThreshold){
         turn_steps_per_second(20000,1);
         omegaXFlexTriggerTime = millis();
+        mode = 2;
     }
 
     if(mahony.getOmegaX() > omegaXFlexThreshold && omegaXFlexTriggerTime + gxCooldownPeriod < millis()){ //&& gxExtendTriggered
         disable_motor();
+        mode = 3;
     }
+
+}
+
+void algorithm4(){
 
 }
 
@@ -537,19 +544,19 @@ void setup() {
     delay(500); 
     connect_bluetooth_to_pc();
     
-    // Serial.println("Waiting for user to give 'L' or 'R'");
+    Serial.println("Waiting for user to give 'L' or 'R'");
     delay(100); 
-    // wait_for_user_to_give_L_R();
+    wait_for_user_to_give_L_R();
     delay(500); 
     setup_encoder();
     delay(500); 
-    // setup_imu();
+    setup_imu();
     delay(500); 
     setup_motor_control();
     delay(500); 
     send_text_to_pc_f("Setup completed after %d ms!", millis());
 
-    // mahony.begin(50);
+    mahony.begin(50);
 }
 
 // continuous loop
@@ -589,44 +596,45 @@ void loop() {
                     emergency_stop = true;
                     break;
                 }
+
+                /* Calculate angular velocity with the encoder */
                 unsigned long now = millis();
 
-                // current_encoder_value = encoder.readAngle();
-                // current_arm_angle = encoder_to_arm_angle(current_encoder_value);
                 float deltaAngle = current_arm_angle - lastAngle;  // Hoekverandering
                 lastAngle = current_arm_angle;
                 
-                // **Bereken snelheid in stappen per seconde**
                 float deltaTime = (now - lastTime) / 1000.0; // Convert to seconds
                 encoder_speed = (deltaAngle * gear_ratio) / deltaTime; // Steps per second
                 lastTime = now;
-                // while(!BLUETOOTH.connected()){
-                //     // do nothing. keep checking.
-                // }; 
+
 
                 // Read the IMU data
-                // IMU.readAcceleration(acc[0], acc[1], acc[2]);
-                // IMU.readGyroscope(gyr[0], gyr[1], gyr[2]);
+                IMU.readAcceleration(acc[0], acc[1], acc[2]);
+                IMU.readGyroscope(gyr[0], gyr[1], gyr[2]);
+
                 // Transform the IMU data
-                // transform_acc_data(acc[0], acc[1], acc[2]);
-                // transform_gyr_data(gyr[0], gyr[1], gyr[2]);
+                transform_acc_data(acc[0], acc[1], acc[2]);
+                transform_gyr_data(gyr[0], gyr[1], gyr[2]);
+
                 // Update the Mahony filter
-                // mahony.updateIMU(gyr[0], gyr[1], gyr[2], acc[0], acc[1], acc[2]);
+                mahony.updateIMU(gyr[0], gyr[1], gyr[2], acc[0], acc[1], acc[2]);
+
                 // Get the quaternion values
                 //mahony.getQuaternion(q0, q1, q2, q3); // gaat dit wel goed zo? of kan ik beter een float maken van updateIMU?
                 // Drift prevention
                 //drift_prevention(q0, q1, q2, q3, acc[0], acc[1], acc[2], gyr[0], gyr[1], gyr[2]);
 
-
+                /* Run algorithm */
                 // algorithm1(gyr[0], current_arm_angle);
                 // algorithm2(gyr[0], acc[1], current_arm_angle);
-                uint32_t motor_speed = test_run3(current_arm_angle, steps_per_second, direction, speed_increased);
+                algorithm3();
+                // uint32_t motor_speed = test_run3(current_arm_angle, steps_per_second, direction, speed_increased);
               
                 unsigned long timestamp = millis();
 
                 // float rollMahony = mahony.getRoll(); // Fetch roll value
                 
-                send_data_to_pc_f("%lu,%f,%d,%f\n", timestamp, current_arm_angle, motor_speed, encoder_speed); // motor_speed,
+                send_data_to_pc_f("%lu,%f,%f\n", timestamp, current_arm_angle, encoder_speed); // motor_speed,
 
                 // send_data_to_pc_f("L %d |E %.2f |A %+.2f %+.2f %+.2f |G %+.3f %+.3f %+.3f |C %d => %.3f° |R %.3f | P %d",
                 // /* L */ loop_counter, 
