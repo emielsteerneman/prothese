@@ -60,6 +60,18 @@ const unsigned long gxCooldownPeriod = 1000; // Cooldown period in milliseconds 
 // variables for algorithm 3
 unsigned long omegaXFlexTriggerTime = 0;
 unsigned long omegaXExtendTriggerTime = 0;
+bool onlyFlex = false;
+bool onlyExtend = false;
+bool extendMotorRunning = false;
+bool extendCooldownPassed = false; // Tracks if cooldown has passed
+bool flexMotorRunning = false;
+bool flexCooldownPassed = false; // Tracks if cooldown has passed
+unsigned long lastExtendTriggerTime = 0;  
+unsigned long lastFlexTriggerTime = 0;   
+unsigned long lastExtendStopTime = 0;  // Track when the motor stopped
+unsigned long lastFlexStopTime = 0;  
+
+const unsigned long extraCooldownTime = 500; // 500ms extra cooldown before restarting
 
 // variables for test run
 int motor_run_counter = 0;
@@ -292,114 +304,132 @@ void algorithm1(float& gx, float current_arm_angle){ // moet gx niet een pointer
             rollTriggerTime = millis(); 
         }
     } else { //!gxTriggered
-        if ((millis() - rollTriggerTime > rollCooldownPeriod) &&mahony.getRoll() > 20 ) { //&& current_arm_angle < 85 /* degrees */
+        if ((millis() - rollTriggerTime > rollCooldownPeriod) &&mahony.getRoll() > 20 && current_arm_angle < 88) { //&& current_arm_angle < 85 /* degrees */
             direction =0; //target_arm_angle += 0.5;
             turn_steps_per_second(20000, direction);
 
         }else{
             disable_motor();//target_arm_angle = current_arm_angle;
         }
-    }
+    } 
 
-    // target_arm_angle = constrain(target_arm_angle, 5, 85);
-
-    // float angle_error = target_arm_angle - current_arm_angle;
-    // bool target_reached = fabs(angle_error) < ERROR_MARGIN_ANGLE;
-
-    // if (target_reached){
-    //     gxTriggered = false;
-    //     disable_motor();
-    // } else {
-    //     enable_motor();
-    //     bool direction;
-    //     if (current_arm_angle < target_arm_angle){
-    //         direction = 0;  // FLEX
-    //     }
-    //     else {
-    //         direction = 1; // EXTEND
-    //     }
-        // turn_steps_per_second(20000, direction);
-    // }   
+        // ANGLE-BASED CONDITIONS
+        if (current_arm_angle <= 5) {
+            disable_motor();
+        }
+    
+        if (current_arm_angle >= 88) {
+            disable_motor();
+        }
+    
 }
 
-// void algorithm2(float gx, float ax,  float current_arm_angle) {
-//     // na bereiken van roll threshold --> als gx de threshold overschrijft geldt het mapping syteem
-//     // zodra gx onder de threshold, motor stop.
-//     // als gx langer dan 1 seconde onder de threshol, motor/algoritme begint pas weer als roll threshold bereikt is
-//     // zodra gx onder threshold, motor stopt. Binnen een seconde weer beweging? --> algoritme wordt doorgezet
-    
-//     // Define speed scaling factors
-//     const float MIN_STEPS = 10000;   // Minimum motor speed
-//     const float MAX_STEPS = 20000;  // Maximum motor speed
-//     const float GYRO_THRESHOLD = 15;  // Minimum gx value to activate movement
-
-//     // Determine speed based on gx magnitude
-//     float motorSteps = map(abs(gx), 0, 40, MIN_STEPS, MAX_STEPS);  
-//     motorSteps = constrain(motorSteps, MIN_STEPS, MAX_STEPS);  
-
-
-//     bool person_is_moving_arm = GYRO_THRESHOLD < abs(gx);
-
-//     if(person_is_moving_arm && gxEnabled){
-//         gxTriggerTime = millis(); // Store the latest time the person moved his arm
-//         turn_steps_per_second(motorSteps, gx < 0);
-//     }
-
-//     if(!person_is_moving_arm){
-//         disable_motor();
-//     }
-    
-//     bool arm_has_not_moved_for_one_second = gxTriggerTime + gxCooldownPeriod < millis();
-//     gxEnabled = !arm_has_not_moved_for_one_second;
-    
-//     if(20 < mahony.getRoll()){
-//         gxEnabled = true;
-//     }
-
-
-//     if (current_arm_angle < 10 || 80 < current_arm_angle) {
-//         disable_motor();
-//         emergency_stop = true;
-//     }
-
-// }
-
-void algorithm3(){
+void algorithm3(float& gx, float current_arm_angle){
+    //HUIDIG PROBLEEM: HIJ TRIGGERED NIET EEN TWEEDE KEER OM TE STOPPEN. DAARVOOR WAS DE ISSUE DAT HIJ STOPTE MAAR INSTANT WEER GETRIGGERED WERD OM WEER TE BEWEGEN.
     /* Algoritme 3
     Het idee is om de bovenarm alvast in de gewenste positie te brengen vooor de reiktaak en dat de onderarm daarna ingesteld kan worden.
     Dit zou bijvoorbeeld kunnen door een snelle op en neer bewegen van de bovenarm. eventuel een neer-op bewegen voor de andere kant op.
     er moet dan nog uitgezocht worden hoe de beweging gestop kan worden
     */
-    const float omegaXExtendThreshold = 200;
-    const float omegaXFlexThreshold = -200;
+   const float omegaXExtendThreshold = 300;
+   const float omegaXFlexThreshold = -300;
 
-    if (mahony.getOmegaX() > omegaXExtendThreshold){
-        turn_steps_per_second(20000,0);
-        mode = 0;
-        omegaXExtendTriggerTime = millis();
-        // gxExtendTriggered = true;
+    // EXTEND MOVEMENT
+    if (gx > omegaXExtendThreshold && !onlyFlex && !extendMotorRunning) {
+        // Ensure extra cooldown has passed before starting again
+        if (millis() - lastExtendStopTime > extraCooldownTime) {
+            turn_steps_per_second(20000, 0);
+            omegaXExtendTriggerTime = millis();
+            extendMotorRunning = true;  
+            extendCooldownPassed = false;
+            onlyExtend = false;
+        }
     }
 
-    if(mahony.getOmegaX() > omegaXExtendThreshold && omegaXExtendTriggerTime + gxCooldownPeriod < millis()){ //&& gxExtendTriggered
+    // Check if cooldown has passed
+    if (extendMotorRunning && (millis() - omegaXExtendTriggerTime > gxCooldownPeriod)) { 
+        extendCooldownPassed = true;
+    }
+
+    // Stop motor only if cooldown has passed AND gx is triggered again
+    if (extendCooldownPassed && gx > omegaXExtendThreshold) {
         disable_motor();
-        mode = 1;
-        //gxExtendTriggered = false;
+        extendMotorRunning = false;
+        extendCooldownPassed = false;
+        lastExtendStopTime = millis(); // Store stop time to enforce extra cooldown
     }
 
-    if (mahony.getOmegaX() > omegaXFlexThreshold){
-        turn_steps_per_second(20000,1);
-        omegaXFlexTriggerTime = millis();
-        mode = 2;
+    // FLEX MOVEMENT
+    if (gx < omegaXFlexThreshold && !onlyExtend && !flexMotorRunning) {
+        // Ensure extra cooldown has passed before starting again
+        if (millis() - lastFlexStopTime > extraCooldownTime) {
+            turn_steps_per_second(20000, 1);
+            omegaXFlexTriggerTime = millis();
+            flexMotorRunning = true;  
+            flexCooldownPassed = false;
+            onlyFlex = false;
+        }
     }
 
-    if(mahony.getOmegaX() > omegaXFlexThreshold && omegaXFlexTriggerTime + gxCooldownPeriod < millis()){ //&& gxExtendTriggered
+    // Check if cooldown has passed
+    if (flexMotorRunning && (millis() - omegaXFlexTriggerTime > gxCooldownPeriod)) { 
+        flexCooldownPassed = true;
+    }
+
+    // Stop motor only if cooldown has passed AND gx is triggered again
+    if (flexCooldownPassed && gx < omegaXFlexThreshold) {
         disable_motor();
-        mode = 3;
+        flexMotorRunning = false;
+        flexCooldownPassed = false;
+        lastFlexStopTime = millis(); // Store stop time to enforce extra cooldown
     }
 
-}
+    // ANGLE-BASED CONDITIONS
+    if (current_arm_angle < 5) {
+        disable_motor();
+        onlyFlex = true;  
+    }
 
-void algorithm4(){
+    if (current_arm_angle > 88) {
+        disable_motor();
+        onlyExtend = true;
+    }
+
+
+
+    // if (gx > omegaXExtendThreshold && !onlyFlex && !extendMotorRunning){
+    //     turn_steps_per_second(20000,1);
+    //     omegaXExtendTriggerTime = millis();
+    //     extendMotorRunning = 1;  // Mark motor as running
+    //     onlyExtend = 0;
+    // }
+
+    // if(gx > omegaXExtendThreshold && (millis() - omegaXExtendTriggerTime > gxCooldownPeriod)){ 
+    //     disable_motor();
+    //     extendMotorRunning = 0;  // Reset flag so it can be triggered again
+    // }
+
+    // if (gx < omegaXFlexThreshold && !onlyExtend && !flexMotorRunning){
+    //     turn_steps_per_second(20000,0);
+    //     omegaXFlexTriggerTime = millis();
+    //     flexMotorRunning = 1;  // Mark motor as running
+    //     onlyFlex = 0;
+    // }
+
+    // if(gx < omegaXFlexThreshold && (millis() - omegaXFlexTriggerTime > gxCooldownPeriod)){ 
+    //     disable_motor();
+    //     flexMotorRunning = 0;
+    // }
+
+    // if (current_arm_angle<5){
+    //     disable_motor();
+    //     onlyFlex = 1;  
+    // }
+
+    // if (current_arm_angle > 88){
+    //     disable_motor();
+    //     onlyExtend = 1;
+    // }
 
 }
 
@@ -457,32 +487,6 @@ int test_run3(float& current_arm_angle, uint32_t& steps_per_second, int& directi
 
     return steps_per_second;
 }
-
-// float test_run2(int& motor_run_counter, float& steps_per_second){
-
-//     if (motor_run_counter < 50) {  
-//         turn_steps_per_second(steps_per_second, 1);  // Run motor forward for 1 second
-//         motor_run_counter++;
-//     } 
-//     // else if(motor_run_counter > 49 && motor_run_counter < 100){
-//     //     turn_steps_per_second(0, 1);  // Stop motor for 1 second
-//     //     motor_run_counter++;
-//     // }
-//     // else if (motor_run_counter > 99 && motor_run_counter < 150) {
-//     //     turn_steps_per_second(steps_per_second, 1);  // Run motor in reverse for 1 second
-//     //     motor_run_counter++;
-//     // } 
-//     // else if (motor_run_counter > 149 && motor_run_counter < 200) {
-//     //     turn_steps_per_second(0, 1);  // Stop motor in reverse for 1 second
-//     //     motor_run_counter++;
-//     // } 
-//     else {
-//         motor_run_counter = 0;  // Reset counter to restart cycle
-//         steps_per_second += 100;  // Increase steps per second by 100 after each cycle
-//     }
-//     return steps_per_second;
-// }
-
 
 void wait_for_user_to_give_L_R(){
     // This needs the bluetooth to be running
@@ -566,9 +570,9 @@ void loop() {
     uint32_t timestamp_next_loop = 0;
     uint16_t current_encoder_value = 0;
     float current_arm_angle = 0.;
-    float angle_error = 0;
+    // float angle_error = 0;
     // float q0, q1, q2, q3;
-    uint32_t loop_counter = 0;
+    // uint32_t loop_counter = 0;
 
     if (BLUETOOTH) {
         timestamp_next_loop = millis() + LOOP_INTERVAL;
@@ -591,7 +595,7 @@ void loop() {
                 /* EMERGENCY BREAK */
                 current_encoder_value = encoder.readAngle();
                 current_arm_angle = encoder_to_arm_angle(current_encoder_value);
-                if (current_arm_angle < 5 || 88 < current_arm_angle) {
+                if (current_arm_angle < 3 || 90 < current_arm_angle) {
                     disable_motor();
                     emergency_stop = true;
                     break;
@@ -625,9 +629,9 @@ void loop() {
                 //drift_prevention(q0, q1, q2, q3, acc[0], acc[1], acc[2], gyr[0], gyr[1], gyr[2]);
 
                 /* Run algorithm */
-                // algorithm1(gyr[0], current_arm_angle);
+                algorithm1(gyr[0], current_arm_angle);
                 // algorithm2(gyr[0], acc[1], current_arm_angle);
-                algorithm3();
+                // algorithm3(gyr[0], current_arm_angle);
                 // uint32_t motor_speed = test_run3(current_arm_angle, steps_per_second, direction, speed_increased);
               
                 unsigned long timestamp = millis();
