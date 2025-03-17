@@ -315,11 +315,15 @@ void algorithm1(float& gx, float current_arm_angle){ // moet gx niet een pointer
 
         // ANGLE-BASED CONDITIONS
         if (current_arm_angle <= 5) {
-            disable_motor();
+            if(direction == 1){
+                disable_motor();
+            }
         }
     
         if (current_arm_angle >= 88) {
-            disable_motor();
+            if(direction == 0){
+                disable_motor();
+            }
         }
     
 }
