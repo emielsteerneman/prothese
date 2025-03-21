@@ -11,7 +11,7 @@ BLEDevice BLUETOOTH;
 BLEService myService("12345678-1234-5678-1234-56789abcdef0"); // service UUID
 // https://docs.arduino.cc/libraries/arduinoble/#BLECharacteristic%20Class
 BLECharacteristic       ArduinoToPc("12345678-1234-5678-1234-56789abcdef1", BLERead | BLENotify, SEND_BUFFER_SIZE); // read and notify UUID
-BLEStringCharacteristic PcToArduino("12345678-1234-5678-1234-56789abcdef2", BLEWrite, RECEIVE_BUFFER_SIZE); // write UUID
+BLEStringCharacteristic PcToArduino("12345678-1234-5678-1234-56789abcdef2", BLEWrite | BLENotify, RECEIVE_BUFFER_SIZE); // write UUID
 
 
 void setup_bluetooth() {

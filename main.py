@@ -70,14 +70,18 @@ async def user_input_loop(client):
     while True:
         # Wait for user to type something
         user_text = await asyncio.to_thread(input, "")
-        # Quit if user types "quit"
-        if user_text.lower() == "quit": break
+
         # Skip empty lines
         if user_text == "": continue
         # Send text to Arduino
         await client.write_gatt_char(PC_TO_ARDUINO_UUID, user_text.encode())
         
         print(f"\n[Python  -> Arduino] {user_text}")
+
+        # Quit if user types "q"
+        if user_text.lower() == "q": 
+            print("[user_input_loop] Quitting")
+            break
 
 async def main():
     print("[main] Scanning for BLE devices...")
@@ -111,7 +115,7 @@ async def main():
         # Run user input in a separate task
         input_task = asyncio.create_task(user_input_loop(client))
 
-        # Wait until the user writes 'quit'
+        # Wait until the user writes 'q'
         await input_task
 
         # Stop notifications before disconnecting
