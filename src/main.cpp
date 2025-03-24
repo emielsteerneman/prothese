@@ -97,8 +97,6 @@ float gyr[3] = {0, 0, 0};
 // const float gear_ratio = 1.0;  // Pas aan als je een overbrenging hebt
 
 
-
-
 void timerInterrupt(){
     if (BLUETOOTH) {
         timer_interrupt = true;
@@ -433,6 +431,26 @@ void setup() {
 // continuous loop
 void loop() { //volgorde eventueel aanpassen
 
+    if (!encoder.begin()){
+        disableMotor();
+        emergency_stop = true;
+        Serial.println("Encoder failure!");
+        sendTextToPc("Encoder failure!");
+        return;
+    }
+
+    if (pcHasWritten() && getPcInput() == "q") {
+        sendTextToPc("STOPPED BY USER");
+        disableMotor();
+        emergency_stop = true;
+        return;
+    }
+
+    if(emergency_stop){
+        disableMotor();
+        return;
+    } 
+
      // Read the IMU data
      IMU.readAcceleration(acc[0], acc[1], acc[2]);
      IMU.readGyroscope(gyr[0], gyr[1], gyr[2]);
@@ -455,16 +473,5 @@ void loop() { //volgorde eventueel aanpassen
     algorithm1(omega_x, elbow_angle);
     // algorithm2(omega_x, elbow_angle);
 
-    if(emergency_stop){
-        disableMotor();
-        return;
-    } 
 
-    if (!encoder.begin()){
-        disableMotor();
-        emergency_stop = true;
-        Serial.println("Encoder failure!");
-        sendTextToPc("Encoder failure!");
-        return;
-    }
 }
