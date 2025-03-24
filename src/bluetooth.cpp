@@ -14,7 +14,7 @@ BLECharacteristic       ArduinoToPc("12345678-1234-5678-1234-56789abcdef1", BLER
 BLEStringCharacteristic PcToArduino("12345678-1234-5678-1234-56789abcdef2", BLEWrite, RECEIVE_BUFFER_SIZE); // write UUID
 
 
-void setup_bluetooth() {
+void setupBluetooth() {
     Serial.println("Beginning BLE!");
     if (!BLE.begin()) {
         Serial.println("Starting BLE failed!");
@@ -34,7 +34,7 @@ void setup_bluetooth() {
     Serial.println("Ready to connect!");
 }
 
-void connect_bluetooth_to_pc(){
+void connectBluetoothToPc(){
     Serial.println("Waiting for the PC to connect to the Arduino Bluetooth...");
     while(!BLUETOOTH){
         BLUETOOTH = BLE.central();
@@ -47,25 +47,25 @@ void connect_bluetooth_to_pc(){
     while(!PcToArduino.written()){
         delay(200);
         while(!BLUETOOTH.connected());
-        send_text_to_pc("INIT");
+        sendTextToPc("INIT");
         Serial.print(".. Still waiting\r");
     }
 }
 
-bool pc_has_written(){
+bool pcHasWritten(){
     return PcToArduino.written();
 }
 
-String get_pc_input(){
+String getPcInput(){
     return PcToArduino.value();
 }
 
-void send_text_to_pc(const char* string){
+void sendTextToPc(const char* string){
     sprintf(send_buffer, "TEXT%s", string);
     ArduinoToPc.writeValue(send_buffer, sizeof(send_buffer));
 }
 
-void send_text_to_pc_f(const char* format, ...){
+void sendTextToPcf(const char* format, ...){ //ehh moeten die va dingen ook zonder _?
     // Start by writing "TEXT" into the buffer
     sprintf(send_buffer, "TEXT");
     // Do all the other magic string stuff that places the formatted string into the buffer
@@ -87,7 +87,7 @@ void send_text_to_pc_f(const char* format, ...){
 //     ArduinoToPc.writeValue(send_buffer, sizeof(send_buffer));
 // }
 
-void send_data_to_pc_f(const char* format, ...){
+void sendDataToPcf(const char* format, ...){
     va_list args;
     va_start(args, format);
     vsnprintf(send_buffer, sizeof(send_buffer), format, args);

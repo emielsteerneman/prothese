@@ -9,13 +9,13 @@
 // Make the variable BLUETOOTH available in other files
 extern BLEDevice BLUETOOTH;
 
-void setup_bluetooth();
-void connect_bluetooth_to_pc();
-bool pc_has_written();
-String get_pc_input();
-void send_text_to_pc(const char* string);
-void send_text_to_pc_f(const char* format, ...);
-void send_data_to_pc_f(const char* format, ...);
+void setupBluetooth();
+void connectBluetoothToPc();
+bool pcHasWritten();
+String getPcInput();
+void sendTextToPc(const char* string);
+void sendTextToPcf(const char* format, ...);
+void sendDataToPcf(const char* format, ...);
 
 
 #endif // BLUETOOTH_H

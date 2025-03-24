@@ -21,17 +21,17 @@ nrfx_pwm_config_t PWM_CONFIGURATION = {0};
 nrf_pwm_sequence_t PWM_SEQUENCE = {0};
 uint16_t duty_cycle = 0; // DO NOT MODIFY THIS ANYWHERE. 
 
-void enable_motor(){
+void enableMotor(){
     pinMode(MOTOR_ENABLE_PIN, OUTPUT);
     digitalWrite(MOTOR_ENABLE_PIN, LOW);
 }
 
-void disable_motor(){
+void disableMotor(){
     pinMode(MOTOR_ENABLE_PIN, OUTPUT);
     digitalWrite(MOTOR_ENABLE_PIN, HIGH);
 }
 
-void setup_motor_control(){
+void setupMotorControl(){
     pinMode(MS1_PIN, OUTPUT);
     digitalWrite(MS1_PIN, HIGH);
 
@@ -41,7 +41,7 @@ void setup_motor_control(){
     pinMode(MOTOR_DIR_PIN, OUTPUT);
     digitalWrite(MOTOR_DIR_PIN, LOW);
     
-    disable_motor();
+    disableMotor();
 
     duty_cycle = 0;
 
@@ -66,10 +66,10 @@ void setup_motor_control(){
     };
 }
 
-bool turn_steps_per_second(uint32_t steps_per_second, uint8_t dir){
+bool turnStepsPerSecond(uint32_t steps_per_second, uint8_t dir){
     
     if(steps_per_second == 0){
-        disable_motor();
+        disableMotor();
         return true;
     }
 
@@ -100,7 +100,7 @@ bool turn_steps_per_second(uint32_t steps_per_second, uint8_t dir){
     nrfx_pwm_simple_playback(&PWM_INSTANCE, &PWM_SEQUENCE, 1, NRFX_PWM_FLAG_LOOP);
 
     digitalWrite(MOTOR_DIR_PIN, dir);
-    enable_motor();
+    enableMotor();
 
     return true;
 }
