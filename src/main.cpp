@@ -1,3 +1,5 @@
+// TODO: motorspeed meegeven aan algoritme?
+
 // libraries
 #include <ArduinoBLE.h>
 #include <Arduino_LSM9DS1.h>
@@ -20,32 +22,30 @@
 #define MOTOR_DIR_PIN 2
 #define MOTOR_ENABLE_PIN 9
 
-//Ticker
-mbed::Ticker timer;
-
-// encoder object
-AS5600 encoder;
-
-// Mahony object
-Mahony mahony;
-
+/* Objects */
+mbed::Ticker timer; // Ticker object
+AS5600 encoder; // encoder object
+Mahony mahony; // Mahony object
 
 /* variables timerInterrupt */
 volatile bool timer_interrupt = false;
 
+/* variables setupIMU*/
+const int numReadings = 150; // waar is deze waarde op gebaseerd? + naam wijzigen
+float ax_offset = 0, ay_offset = 0, az_offset = 0; // initialize offset values
+float gx_offset = 0, gy_offset = 0, gz_offset = 0; // initialize offset values
 
 /* variables calculateArmAngle */
 const float ENCODER_TO_ELBOW_OFFSET_DEGREES = 7.03125;
 float encoder_degrees = 0;
 uint16_t encoder_value = 0;
 
-
 /* variables PIDControl */
 unsigned long previous_PID_timestamp = 0;
 unsigned long previous_encoder_timestamp = 0;
 float elbow_angle = 0;
 float previous_elbow_angle = 0;
-#define FILTER_SIZE 12  // Number of values for moving average
+#define FILTER_SIZE 12  // Number of values for moving average // waarom is dit een define en niet een const?
 double velocity_buffer[FILTER_SIZE] = {0};  // Circular buffer for velocity values
 int velocity_index = 0;  // Index for buffer
 double reference_velocity = 0;
@@ -61,25 +61,42 @@ float motor_speed = 0; // motor speed
 const float MAX_SPEED = 31400.0;
 const float MIN_SPEED = 21000.0;
 
+/* variables transformData */
+float transformation_matrix[3][3]; // Will be set based on input
 
-// variables setupEncoder
-//none
+/* variables algorithm1 */
+unsigned long omega_x_trigger_timestamp = 0; // Stores the last time gx was triggered
+const unsigned long OMEGA_X_COOLDOWN_PERIOD = 500; // Cooldown period in milliseconds
+unsigned long roll_trigger_timestamp = 0; // Stores the last time roll was triggered
+const unsigned long ROLL_COOLDOWN_PERIOD = 1000; // Cooldown period in milliseconds
+bool omega_x_triggered = false; // Stores the last time gx was triggered
+int motor_direction = 0; // 0 = flex, 1 = extend
 
-// variables setup
-//none
+/* variables algorithm2 */
+const float OMEGA_X_EXTEND_THRESHOLD = -10;
+const float OMEGA_X_FLEX_THRESHOLD = 10;
+bool extend_motor_running = false;
+bool flex_motor_running = false;
+bool extend_cooldown_passed = false;
+bool flex_cooldown_passed = false;
+const unsigned long EXTRA_COOLDOWN_PERIOD = 500;
+unsigned long omega_x_extend_trigger_timestamp = 0;
+unsigned long omega_x_flex_trigger_timestamp = 0;
+unsigned long extend_stop_timestamp = 0;
+unsigned long flex_stop_timestamp = 0;
+
+/* varibales waitForLRInput*/
+bool is_left_prosthetic = false;
 
 // variables loop
 bool emergency_stop = false;
+float acc[3] = {0, 0, 0};
+float gyr[3] = {0, 0, 0};
 
 
 // const float gear_ratio = 1.0;  // Pas aan als je een overbrenging hebt
 
 
-// bool isLeftProsthetic = false;
-
-// float transformationMatrix[3][3]; // Will be set based on input
-// float ax_offset = 0, ay_offset = 0, az_offset = 0; // initialize offset values
-// float gx_offset = 0, gy_offset = 0, gz_offset = 0; // initialize offset values
 
 
 void timerInterrupt(){
@@ -88,6 +105,33 @@ void timerInterrupt(){
     }
 }
 
+void transformAccelerometerData(float& ax, float& ay, float& az){
+    ax -= ax_offset + 1; // include gravitational constant
+    ay -= ay_offset;
+    az -= az_offset;
+
+    float axTransformed = transformation_matrix[0][0] * ax + transformation_matrix[0][1] * ay + transformation_matrix[0][2] * az;
+    float ayTransformed = transformation_matrix[1][0] * ax + transformation_matrix[1][1] * ay + transformation_matrix[1][2] * az;
+    float azTransformed = transformation_matrix[2][0] * ax + transformation_matrix[2][1] * ay + transformation_matrix[2][2] * az;
+
+    ax = axTransformed;
+    ay = ayTransformed;
+    az = azTransformed;
+}
+
+void transformGyroscopeData(float& gx, float& gy, float& gz){
+    gx -= gx_offset; // / GYRO_SENSITIVITY;
+    gy -= gy_offset; // / GYRO_SENSITIVITY;
+    gz -= gz_offset; // / GYRO_SENSITIVITY;
+
+    float gxTransformed = transformation_matrix[0][0] * gx + transformation_matrix[0][1] * gy + transformation_matrix[0][2] * gz;
+    float gyTransformed = transformation_matrix[1][0] * gx + transformation_matrix[1][1] * gy + transformation_matrix[1][2] * gz;
+    float gzTransformed = transformation_matrix[2][0] * gx + transformation_matrix[2][1] * gy + transformation_matrix[2][2] * gz;
+
+    gx = gxTransformed;
+    gy = gyTransformed;
+    gz = gzTransformed;
+}
 
 float calculateElbowAngle(uint16_t encoder_value) {
     // const float ENCODER_TO_ARM_OFFSET_DEGREES = 7.03125; // kan dit globaal? voor het geval de waarde verandert
@@ -96,7 +140,6 @@ float calculateElbowAngle(uint16_t encoder_value) {
 
     return encoder_degrees - ENCODER_TO_ELBOW_OFFSET_DEGREES;
 }
-
 
 void PIDControl(){
     if (BLUETOOTH) {
@@ -164,6 +207,146 @@ void PIDControl(){
     }
 }
 
+void algorithm1(float& omega_x, float elbow_angle){ // moet gx niet een pointer worden?
+    /* Algorithm 1
+    When the arm is brought to roll > 20 degrees, the elbow angle will increase until the users removes it from this position.
+    The arm can then move freely until gx is triggered or until it is back in this > 20 degrees position. 
+    When gx is triggered by a fast short movement downwards of the arm, the arm angle reduces until it is in the > position.
+    If it stays in this position for longer than one second, the arm angle will increase again.
+    A cooldownperiod of 0.5 seconds has been build in, to prevent the triggering of the roll right after gx has been triggered. */
+
+    if (omega_x > 10){ 
+        omega_x_triggered = true;  // Set the flag to true
+        omega_x_trigger_timestamp = millis(); 
+    }
+
+    if (omega_x_triggered){
+        if (elbow_angle > 5) {
+            motor_direction = 1; //target_arm_angle = 5;
+            turnStepsPerSecond(motor_speed, motor_direction);
+        }
+
+        if ((millis() - omega_x_trigger_timestamp > OMEGA_X_COOLDOWN_PERIOD) && mahony.getRoll() > 20 ){ //&& current_arm_angle < 85
+            disableMotor();//target_arm_angle = current_arm_angle;
+            omega_x_triggered = false;
+            roll_trigger_timestamp = millis(); 
+        }
+    } else { //!gxTriggered
+        if ((millis() - roll_trigger_timestamp > ROLL_COOLDOWN_PERIOD) &&mahony.getRoll() > 20 && elbow_angle < 88) { //&& current_arm_angle < 85 /* degrees */
+            motor_direction = 0; //target_arm_angle += 0.5;
+            turnStepsPerSecond(motor_speed, motor_direction);
+
+        }else{
+            disableMotor();//target_arm_angle = current_arm_angle;
+        }
+    } 
+
+    // ANGLE-BASED CONDITIONS
+    if (elbow_angle <= 5) {
+        if(motor_direction == 1){
+            disableMotor();
+        }
+    }
+
+    if (elbow_angle >= 88) {
+        if(motor_direction == 0){
+            disableMotor();
+        }
+    }
+    
+}
+
+void algorithm2(float& omega_x, float elbow_angle){
+    /* Algoritme 2
+    Het idee is om de bovenarm alvast in de gewenste positie te brengen vooor de reiktaak en dat de onderarm daarna ingesteld kan worden.
+    Dit zou bijvoorbeeld kunnen door een snelle op en neer bewegen van de bovenarm. eventuel een neer-op bewegen voor de andere kant op.
+    er moet dan nog uitgezocht worden hoe de beweging gestop kan worden
+    */
+
+    // EXTEND MOVEMENT
+    if ((omega_x < OMEGA_X_EXTEND_THRESHOLD) && !extend_motor_running) {    
+        // Ensure extra cooldown has passed before starting again
+        if (millis() - extend_stop_timestamp > EXTRA_COOLDOWN_PERIOD) {
+            motor_direction = 0;
+            turnStepsPerSecond(motor_speed, motor_direction);
+            omega_x_extend_trigger_timestamp = millis();
+            extend_motor_running = true;  
+            extend_cooldown_passed = false;        }
+    }
+
+    // Check if cooldown has passed
+    if (extend_motor_running && (millis() - omega_x_extend_trigger_timestamp > OMEGA_X_COOLDOWN_PERIOD)) { //
+        extend_cooldown_passed = true;
+    }
+
+    // Stop motor only if cooldown has passed AND gx is triggered again
+    if (extend_cooldown_passed && omega_x < OMEGA_X_EXTEND_THRESHOLD) {
+        disableMotor();
+        extend_motor_running = false;
+        extend_cooldown_passed = false;
+        extend_stop_timestamp = millis(); // Store stop time to enforce extra cooldown
+    }
+
+    // FLEX MOVEMENT
+    if (omega_x > OMEGA_X_FLEX_THRESHOLD && !flex_motor_running) {  
+        // Ensure extra cooldown has passed before starting again
+        if (millis() - flex_stop_timestamp > EXTRA_COOLDOWN_PERIOD) {
+            motor_direction = 1;
+            turnStepsPerSecond(motor_speed, motor_direction);
+            omega_x_flex_trigger_timestamp = millis();
+            flex_motor_running = true;  
+            flex_cooldown_passed = false;
+        }
+    }
+
+    // Check if cooldown has passed
+    if ( (millis() - omega_x_flex_trigger_timestamp > OMEGA_X_COOLDOWN_PERIOD) && flex_motor_running ) { // 
+        flex_cooldown_passed = true;
+    }
+
+    // Stop motor only if cooldown has passed AND gx is triggered again
+    if (flex_cooldown_passed && omega_x > OMEGA_X_FLEX_THRESHOLD) {
+        disableMotor();
+        flex_motor_running = false;
+        flex_cooldown_passed = false;
+        flex_stop_timestamp = millis(); // Store stop time to enforce extra cooldown
+    }
+
+
+    if (elbow_angle <= 5) {
+        if(motor_direction == 1){
+            disableMotor();
+        }
+    }
+
+    if (elbow_angle >= 88) {
+        if(motor_direction == 0){
+            disableMotor();
+        }
+    }
+
+}
+
+void setupIMU() {
+    Serial.println("Beginning IMU!");
+    sendTextToPc("Beginning IMU!");
+
+    if (!IMU.begin()) {
+        Serial.println("Failed to initialize IMU!");
+        sendTextToPc("Failed to initialize IMU!");
+        while(1);
+    }
+
+    Serial.println("Calibrating IMU...");
+    sendTextToPc("Calibrating IMU...");
+
+    delay(1000);
+    calibrateIMU(numReadings, ax_offset, ay_offset, az_offset, gx_offset, gy_offset, gz_offset);
+
+    Serial.println("Calibrating of IMU complete!");
+    sendTextToPc("Calibrating of IMU complete!");
+    
+}
 
 void setupEncoder() {
     Serial.println("Beginning Encoder!");
@@ -177,27 +360,100 @@ void setupEncoder() {
     sendTextToPc("Encoder initialized!");
 }
 
+void waitForLRInput(){
+    // This needs the bluetooth to be running
+
+    sendTextToPc("Do you have a left (L) or right (R) elbow prosthetic? Enter 'L' or 'R':");
+
+    while(true){
+        while(!BLUETOOTH.connected()){
+            // do nothing. keep checking.
+        }; 
+
+        // Check if we have input from the user. If not, continue
+        if( !pcHasWritten())
+            continue;
+
+        Serial.println("User has given input!");
+
+        // We received something from the user! Read it.
+        String received = getPcInput();
+
+        // User indicated Left
+        if (received == "L") {
+            is_left_prosthetic = true;
+            sendTextToPc("User has chosen Left!");
+            
+            float left_transformation_matrix[3][3] = {
+                {0, 0, -1}, // X flips, Z-axis effect applied
+                {0, -1, 0}, // Y flips, Z-axis effect applied
+                {-1, 0, 0}  // Z remains the same
+            };
+            // Copy left matrix into transformationMatrix
+            memcpy(transformation_matrix, left_transformation_matrix, sizeof(left_transformation_matrix));
+            break;
+        }  
+        else if (received == "R") {
+            is_left_prosthetic = false;
+            sendTextToPc("User has chosen Right!");
+
+            float right_transformation_matrix[3][3] = {
+                {0, 0, 1},
+                {0, 1, 0},
+                {-1, 0, 0}};
+            // Copy right matrix into transformationMatrix
+            memcpy(transformation_matrix, right_transformation_matrix, sizeof(right_transformation_matrix));
+            break;
+        }
+        else{
+            // Neither L nor R... keep waiting for valid input
+        }
+    }
+}
+
 // setup, runs once
 void setup() {
     Serial.begin(115200);
     Wire.begin(); delay(500); 
     setupBluetooth(); delay(500); 
-    connectBluetoothToPc(); delay(500); 
+    connectBluetoothToPc(); delay(500);
+    Serial.println("Waiting for user to give 'L' or 'R'");
+    waitForLRInput(); delay(500);
     setupEncoder(); delay(500); 
+    setupIMU(); delay(500);
     setupMotorControl(); delay(500); 
     Serial.println("Setup completed");
     sendTextToPcf("Setup completed after %d ms!", millis()); 
     delay(500);
     timer.attach(&timerInterrupt, std::chrono::milliseconds(20));
+
+    mahony.begin(50);
 }
 
 // continuous loop
-void loop() {
+void loop() { //volgorde eventueel aanpassen
+
+     // Read the IMU data
+     IMU.readAcceleration(acc[0], acc[1], acc[2]);
+     IMU.readGyroscope(gyr[0], gyr[1], gyr[2]);
+
+     // Transform the IMU data
+     transformAccelerometerData(acc[0], acc[1], acc[2]);
+     transformGyroscopeData(gyr[0], gyr[1], gyr[2]);
+
+     float omega_x = 0;
+     float omega_y = 0;
+     float omega_z = 0;
+
+     mahony.updateIMU(gyr[0], gyr[1], gyr[2], acc[0], acc[1], acc[2], omega_x, omega_y, omega_z);
 
     if(timer_interrupt){
         PIDControl();
         timer_interrupt = false;
     }
+
+    algorithm1(omega_x, elbow_angle);
+    // algorithm2(omega_x, elbow_angle);
 
     if(emergency_stop){
         disableMotor();

@@ -27,10 +27,8 @@ private:
 	float roll, pitch, yaw;
 	float omega_x, omega_y, omega_z;
 	char anglesComputed;
-	char angularVelocityComputed;
 	static float invSqrt(float x);
 	void computeAngles();
-	void computeAngularVelocity();
 
 //-------------------------------------------------------------------------------------------
 // Function declarations
@@ -38,8 +36,8 @@ private:
 public:
 	Mahony();
 	void begin(float sampleFrequency) { invSampleFreq = 1.0f / sampleFrequency; }
-	void update(float gx, float gy, float gz, float ax, float ay, float az, float mx, float my, float mz);
-	void updateIMU(float gx, float gy, float gz, float ax, float ay, float az);
+	void update(float gx, float gy, float gz, float ax, float ay, float az, float mx, float my, float mz, float& omega_x, float& omega_y, float& omega_z);
+	void updateIMU(float gx, float gy, float gz, float ax, float ay, float az, float& omega_x, float& omega_y, float& omega_z);
 	float getRoll() {
 		if (!anglesComputed) computeAngles();
 		return roll * 57.29578f;
@@ -64,25 +62,6 @@ public:
 		if (!anglesComputed) computeAngles();
 		return yaw;
 	}
-    float getOmegaX(){
-		if (!angularVelocityComputed) computeAngularVelocity();
-		return omega_x;
-	}
-	float getOmegaY(){
-		if (!angularVelocityComputed) computeAngularVelocity();
-		return omega_y;
-	}
-	float getOmegaZ(){
-		if (!angularVelocityComputed) computeAngularVelocity();
-		return omega_z;
-	}
-	void getQuaternion(float &q0_out, float &q1_out, float &q2_out, float &q3_out) {
-    q0_out = q0;
-    q1_out = q1;
-    q2_out = q2;
-    q3_out = q3;
-	}
-
 };
 
 #endif
