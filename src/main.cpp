@@ -1,13 +1,15 @@
 // TODO: motorspeed meegeven aan algoritme?
+// TODO: .begin() is geen boolean.
 
 // libraries
 #include <ArduinoBLE.h>
 #include <Arduino_LSM9DS1.h>
 #include <Serial.h>
 #include <Wire.h>
-#include <AS5600.h>
+// #include <AS5600.h>
 #include <MahonyAHRS.h>
 #include <mbed.h>
+#include <ams_as5048b.h>
 
 // #include "PID_v1_bc.h"
 #include "stdint.h"
@@ -22,9 +24,15 @@
 #define MOTOR_DIR_PIN 2
 #define MOTOR_ENABLE_PIN 9
 
+#define ENCODER_RAW 1 // raw encoder data
+#define ENCODER_TURNS 2 // number of turns
+#define ENCODER_DEGREES 3 // encoder data in degrees
+#define ENCODER_RADIANS 4 // encoder data in radians
+
 /* Objects */
 mbed::Ticker timer; // Ticker object
-AS5600 encoder; // encoder object
+// AS5600 encoder; // encoder object
+AMS_AS5048B encoder; // encoder object
 Mahony mahony; // Mahony object
 
 /* variables timerInterrupt */
@@ -36,8 +44,8 @@ float ax_offset = 0, ay_offset = 0, az_offset = 0; // initialize offset values
 float gx_offset = 0, gy_offset = 0, gz_offset = 0; // initialize offset values
 
 /* variables calculateArmAngle */
-const float ENCODER_TO_ELBOW_OFFSET_DEGREES = 7.03125;
-float encoder_degrees = 0;
+const float ENCODER_TO_ELBOW_OFFSET_DEGREES = 7.03125; // 292.4
+// float encoder_degrees = 0;
 uint16_t encoder_value = 0;
 
 /* variables PIDControl */
@@ -45,13 +53,13 @@ unsigned long previous_PID_timestamp = 0;
 unsigned long previous_encoder_timestamp = 0;
 float elbow_angle = 0;
 float previous_elbow_angle = 0;
-#define FILTER_SIZE 12  // Number of values for moving average // waarom is dit een define en niet een const?
+#define FILTER_SIZE 5  // Number of values for moving average // waarom is dit een define en niet een const?
 double velocity_buffer[FILTER_SIZE] = {0};  // Circular buffer for velocity values
 int velocity_index = 0;  // Index for buffer
-double reference_velocity = 0;
+double reference_velocity = 12.5;
 double input_velocity = 0;
 double output_velocity = 0; // moet dit 21000 worden?
-double K_p = 25.0, K_i = 0.0, K_d = 0.0;  // Tuning parameters (pas aan voor optimale prestaties)
+double K_p = 1.0, K_i = 0.0, K_d = 0.0;  // Tuning parameters (pas aan voor optimale prestaties)
 double error_velocity = 0; // difference between setpoint and processVariable  
 double previous_error_velocity = 0; // error in previous iteration  
 double PID_integral = 0; // integral of error  
@@ -60,6 +68,9 @@ float average_velocity = 0; // average velocity of the motor
 float motor_speed = 0; // motor speed
 const float MAX_SPEED = 31400.0;
 const float MIN_SPEED = 21000.0;
+bool check_for_noise = false;
+uint8_t turn_around_counter = 0;
+uint32_t log_counter = 0;
 
 /* variables transformData */
 float transformation_matrix[3][3]; // Will be set based on input
@@ -90,12 +101,48 @@ bool is_left_prosthetic = false;
 
 // variables loop
 bool emergency_stop = false;
+uint8_t unsafe_encoder_measurements = 0;
 float acc[3] = {0, 0, 0};
 float gyr[3] = {0, 0, 0};
 
 
 // const float gear_ratio = 1.0;  // Pas aan als je een overbrenging hebt
 
+
+void move_to_10_degrees(){
+    while(true){
+        encoder_value = encoder.angleR(ENCODER_RAW, true);
+        elbow_angle = (encoder.angleR(ENCODER_DEGREES, true)-293.5)*-1;
+
+        /* EMERGENCY BREAK */ // Deze verplaatsen zodat angular velocity meteen onder de enocder meting komt
+        if (elbow_angle < 3 || 90 < elbow_angle) {
+            unsafe_encoder_measurements++;
+            if(unsafe_encoder_measurements > 3){
+                sendTextToPcf("EMERGENCY STOPPED: Elbow angle out of bounds: %6.2f", elbow_angle);
+                disableMotor();
+                emergency_stop = true;
+                return;
+            }else{
+                sendTextToPcf("WARNING %d: Elbow angle out of bounds: %6.2f", unsafe_encoder_measurements, elbow_angle);
+            }
+        }else{
+            unsafe_encoder_measurements = 0;
+        }
+
+        float error = 10 - elbow_angle;
+
+        // Stop when we reached our target angle (or at least close enough)
+        if( fabs(error) < 1){
+            disableMotor();
+            sendTextToPc("Reached 10 degrees");
+            return;
+        }
+
+        turnStepsPerSecond(31400, error < 0); // True = extend
+
+        delay(20);
+    }
+}
 
 void timerInterrupt(){
     if (BLUETOOTH) {
@@ -131,32 +178,59 @@ void transformGyroscopeData(float& gx, float& gy, float& gz){
     gz = gzTransformed;
 }
 
-float calculateElbowAngle(uint16_t encoder_value) {
-    // const float ENCODER_TO_ARM_OFFSET_DEGREES = 7.03125; // kan dit globaal? voor het geval de waarde verandert
+// float calculateElbowAngle(uint16_t encoder_value) {
+//     // const float ENCODER_TO_ARM_OFFSET_DEGREES = 7.03125; // kan dit globaal? voor het geval de waarde verandert
 
-    float encoder_degrees = encoder_value * AS5600_RAW_TO_DEGREES;
+//     float encoder_degrees = encoder_value * AS5600_RAW_TO_DEGREES;
 
-    return encoder_degrees - ENCODER_TO_ELBOW_OFFSET_DEGREES;
-}
+//     return encoder_degrees - ENCODER_TO_ELBOW_OFFSET_DEGREES;
+// }
 
 void PIDControl(){
     if (BLUETOOTH) {
         // Determine time since last tick
         unsigned long PID_timestamp = micros();
-        unsigned long delta_PID_timestamp = PID_timestamp - previous_PID_timestamp;
-        previous_PID_timestamp = PID_timestamp;
+        
             
         // Read encoder
-        encoder_value = encoder.readAngle(); // read encoder value
         unsigned long encoder_timestamp = micros();
-        elbow_angle = calculateElbowAngle(encoder_value);
+
+        encoder_value = encoder.angleR(ENCODER_RAW, true);
+        elbow_angle = (encoder.angleR(ENCODER_DEGREES, true)-293.5)*-1;
+        if(elbow_angle < 0){
+            elbow_angle += 360;
+        }
+
+        //// Enable this to just rotate the motor by hand and see the encoder values
+        // sendTextToPcf("Encoder value: %d, Elbow angle: %6.2f", encoder_value, elbow_angle);
+        // return;
+
 
         /* EMERGENCY BREAK */ // Deze verplaatsen zodat angular velocity meteen onder de enocder meting komt
         if (elbow_angle < 3 || 90 < elbow_angle) {
-            disableMotor();
-            emergency_stop = true;
+            unsafe_encoder_measurements++;
+            if(unsafe_encoder_measurements > 3){
+                sendTextToPcf("EMERGENCY STOPPED: Elbow angle out of bounds: %6.2f", elbow_angle);
+                disableMotor();
+                emergency_stop = true;
+                return;
+            }else{
+                sendTextToPcf("WARNING %d: Elbow angle out of bounds: %6.2f", unsafe_encoder_measurements, elbow_angle);
+            }
+        }else{
+            unsafe_encoder_measurements = 0;
+        }
+
+        // Ignore any measurements that are not possible
+        if (elbow_angle > 100 && elbow_angle < 353) {
+            sendTextToPcf("IMPOSIBLE ANGLE: %6.2f", elbow_angle);
             return;
         }
+
+        
+        unsigned long delta_PID_timestamp = PID_timestamp - previous_PID_timestamp;
+        previous_PID_timestamp = PID_timestamp;
+
 
         // **Bereken snelheid in graden per seconde**
         float delta_elbow_angle = elbow_angle - previous_elbow_angle;  // Hoekverandering          
@@ -178,7 +252,7 @@ void PIDControl(){
         input_velocity = velocity_sum / FILTER_SIZE;  // Smoothed velocity
 
         // PID-calculations           
-        error_velocity = reference_velocity - input_velocity;  
+        error_velocity = fabs(reference_velocity) - fabs(input_velocity);  
         PID_integral += error_velocity;  
         PID_derivative = error_velocity - previous_error_velocity;  
         output_velocity = K_p * error_velocity + K_i * PID_integral + K_d * PID_derivative;  
@@ -188,13 +262,38 @@ void PIDControl(){
         // control motor
         motor_speed += output_velocity;
         motor_speed = constrain(motor_speed, MIN_SPEED, MAX_SPEED);
-        turnStepsPerSecond((uint32_t) motor_speed, 0);  
+        // motor_speed=21000;
+        // turnStepsPerSecond((uint32_t) motor_speed, 0);
+
+        // Keep waving
+        if(elbow_angle < 10){
+            turn_around_counter++;
+            if(turn_around_counter > 3){
+                reference_velocity = abs(reference_velocity);
+                turn_around_counter = 0;
+            }
+        }else
+        if(elbow_angle > 80){
+            turn_around_counter++;
+            if(turn_around_counter > 3){
+                reference_velocity = -abs(reference_velocity);
+                turn_around_counter = 0; 
+            }
+        }else{
+            turn_around_counter = 0;
+        }
+
+        // turnStepsPerSecond((uint32_t) 21000, reference_velocity < 0);
+        turnStepsPerSecond((uint32_t) motor_speed, reference_velocity < 0);  
 
         // Print data
-        sendDataToPcf("Time: %6lu, dt: %lu, CEV: %d, RV: %6.2f, AV: %6.2f, E: %6.2f, I: %6.2f, D: %6.2f, MS: %6.2f",
+        sendDataToPcf("N: %6d, t: %6lu, dt: %lu, REF: %5.2f, ENC_RAW: %5d, ENC_DEG: %5.2f, VEL_RAW: %6.2f, VEL_AVG: %6.2f, VEL_ERR: %5.2f, I: %8.2f, D: %5.2f, MS: %5.2f",
+            log_counter,
             PID_timestamp,
             delta_PID_timestamp,
+            reference_velocity,
             encoder_value,
+            elbow_angle,
             raw_velocity,
             average_velocity,
             error_velocity,
@@ -202,6 +301,7 @@ void PIDControl(){
             PID_derivative,
             motor_speed
         );
+        log_counter++;
     }
 }
 
@@ -349,11 +449,12 @@ void setupIMU() {
 void setupEncoder() {
     Serial.println("Beginning Encoder!");
     sendTextToPc("Beginning Encoder!");
-    if (!encoder.begin()) {
-        Serial.println("Failed to initialize Encoder!");
-        sendTextToPc("Failed to initialize Encoder!");
-        while (1);
-    }
+    // if (!encoder.begin()) {
+    //     Serial.println("Failed to initialize Encoder!");
+    //     sendTextToPc("Failed to initialize Encoder!");
+    //     while (1);
+    // }
+    encoder.begin();
     Serial.println("Encoder initialized!");
     sendTextToPc("Encoder initialized!");
 }
@@ -416,28 +517,38 @@ void setup() {
     setupBluetooth(); delay(500); 
     connectBluetoothToPc(); delay(500);
     Serial.println("Waiting for user to give 'L' or 'R'");
-    waitForLRInput(); delay(500);
+    // waitForLRInput(); delay(500);
     setupEncoder(); delay(500); 
-    setupIMU(); delay(500);
+    // setupIMU(); delay(500);
     setupMotorControl(); delay(500); 
+    // encoder.begin();
     Serial.println("Setup completed");
     sendTextToPcf("Setup completed after %d ms!", millis()); 
     delay(500);
+    
+    move_to_10_degrees();
+    delay(1000);
+
     timer.attach(&timerInterrupt, std::chrono::milliseconds(20));
 
-    mahony.begin(50);
+    // mahony.begin(50);
 }
 
 // continuous loop
 void loop() { //volgorde eventueel aanpassen
 
-    if (!encoder.begin()){
-        disableMotor();
-        emergency_stop = true;
-        Serial.println("Encoder failure!");
-        sendTextToPc("Encoder failure!");
-        return;
-    }
+    // float encoder_raw = encoder.angleR(ENCODER_RAW, true);
+    // float encoder_degrees = (encoder.angleR(ENCODER_DEGREES, true)-293.5)*-1;
+
+    // sendTextToPcf("raw: %7.2f, degrees: %7.2f", encoder_raw, encoder_degrees); 
+
+    // if (!encoder.begin()){
+    //     disableMotor();
+    //     emergency_stop = true;
+    //     Serial.println("Encoder failure!");
+    //     sendTextToPc("Encoder failure!");
+    //     return;
+    // }
 
     if (pcHasWritten() && getPcInput() == "q") {
         sendTextToPc("STOPPED BY USER");
@@ -447,30 +558,33 @@ void loop() { //volgorde eventueel aanpassen
     }
 
     if(emergency_stop){
-        disableMotor();
-        return;
+        while(1){
+            disableMotor();
+            sendTextToPc("EMERGENCY STOPPED");
+            delay(1000);
+        }
     } 
 
-     // Read the IMU data
-     IMU.readAcceleration(acc[0], acc[1], acc[2]);
-     IMU.readGyroscope(gyr[0], gyr[1], gyr[2]);
+    //  // Read the IMU data
+    //  IMU.readAcceleration(acc[0], acc[1], acc[2]);
+    //  IMU.readGyroscope(gyr[0], gyr[1], gyr[2]);
 
-     // Transform the IMU data
-     transformAccelerometerData(acc[0], acc[1], acc[2]);
-     transformGyroscopeData(gyr[0], gyr[1], gyr[2]);
+    //  // Transform the IMU data
+    //  transformAccelerometerData(acc[0], acc[1], acc[2]);
+    //  transformGyroscopeData(gyr[0], gyr[1], gyr[2]);
 
-     float omega_x = 0;
-     float omega_y = 0;
-     float omega_z = 0;
+    //  float omega_x = 0;
+    //  float omega_y = 0;
+    //  float omega_z = 0;
 
-     mahony.updateIMU(gyr[0], gyr[1], gyr[2], acc[0], acc[1], acc[2], omega_x, omega_y, omega_z);
+    //  mahony.updateIMU(gyr[0], gyr[1], gyr[2], acc[0], acc[1], acc[2], omega_x, omega_y, omega_z);
 
     if(timer_interrupt){
         PIDControl();
         timer_interrupt = false;
     }
 
-    algorithm1(omega_x, elbow_angle);
+    // algorithm1(omega_x, elbow_angle);
     // algorithm2(omega_x, elbow_angle);
 
 

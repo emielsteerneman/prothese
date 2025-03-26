@@ -58,11 +58,11 @@ def notification_handler(sender, data):
         time_diff = QUEUE_TIME[-1] - QUEUE_TIME[0]
         msg_rate = len(QUEUE_TIME) / time_diff
 
-    print(f"\r[Arduino ->  Python] {msg_rate:5.1f}Hz | {text}        ", end="")
+    print(f"\r[Arduino ->  Python] {msg_rate:5.1f}Hz | {text}        ", end="\n")
 
     # Add message to queue so that the writer task can write it to the log file
     loop = asyncio.get_running_loop()
-    loop.call_soon_threadsafe(QUEUE_WRITE.put_nowait, f"{now} {text}")
+    loop.call_soon_threadsafe(QUEUE_WRITE.put_nowait, f"{str(now).ljust(18)} {text}")
 
 async def user_input_loop(client):
     ### Continuously prompt user for input and send to Arduino
