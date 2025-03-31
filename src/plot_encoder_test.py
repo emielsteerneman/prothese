@@ -13,6 +13,9 @@ def find_latest_logfile(offset=0):
     log_filename = sorted(all_logfiles, reverse=True)[offset]
     return os.path.join(log_folder, log_filename)
 
+print(find_latest_logfile(0))
+exit()
+
 def load_log_file(filepath):
     all_numbers = []
     lines = open(filepath, "r").readlines()

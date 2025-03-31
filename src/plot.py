@@ -23,7 +23,6 @@ def load_log_file(filepath):
         all_numbers.append(numbers)
     return np.array(all_numbers)
 
-
 logfile = find_latest_logfile(0)
 print(f"Now opening {logfile}")
 values = load_log_file(logfile)
