@@ -221,6 +221,10 @@ void Mahony::updateIMU(float gx, float gy, float gz, float ax, float ay, float a
 		gz += twoKp * halfez;
 	}
 
+	omega_x = gx;
+	omega_y = gy;
+	omega_z = gz;
+
 	// Integrate rate of change of quaternion
 	gx *= (0.5f * invSampleFreq);		// pre-multiply common factors
 	gy *= (0.5f * invSampleFreq);
