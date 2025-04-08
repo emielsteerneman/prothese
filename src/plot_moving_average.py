@@ -6,6 +6,21 @@ import math
 import re
 import os
 
+# 0: bluetooth time
+# 1: log_counter,
+# 2: PID_timestamp,
+# 3: delta_PID_timestamp,
+# 4: reference_velocity,
+# 5: encoder_value,
+# 6: delta_encoder_value
+# 7: elbow_angle,
+# 8: raw_velocity,
+# 9: average_velocity,
+# 10: error_velocity,
+# 11: PID_integral,
+# 12: PID_derivative,
+# 13: motor_speed
+
 def find_latest_logfile(offset=0):
     log_folder = "D:\BMT\Master\Thesis\Arduino\prothese\logs"
     all_logfiles = os.listdir(log_folder)
@@ -23,77 +38,77 @@ def load_log_file(filepath):
         all_numbers.append(numbers)
     return np.array(all_numbers)
 
-logfile = find_latest_logfile(0)
+logfile = find_latest_logfile(4)
+# logfile = "D:\BMT\Master\Thesis\Arduino\prothese\logs\log_20250312_162604.txt"
 print(f"Now opening {logfile}")
 values = load_log_file(logfile)
 
 for window_size in range(6, 21):
-    moving_average = np.convolve(values[:,4], np.ones(window_size)/window_size, mode='valid') + window_size
+    moving_average = np.convolve(values[:,7], np.ones(window_size)/window_size, mode='valid') + window_size
     plt.subplot(2, 1, 1)
-    plt.plot(values[window_size-1:,1], moving_average, label=f"Moving Average {window_size}", alpha=1)
+    plt.plot((values[window_size-1:,2]-values[:,2].min())/1e6, moving_average, label=f"Moving Average {window_size}", alpha=1)
     plt.grid()
-    plt.title("Window Size Comparison Encoder Velocity at 31400 steps/s")
+    plt.title("Window Size Comparison Encoder Velocity at 22600 steps/s")
     plt.legend(bbox_to_anchor=(1.04, 1), loc="upper left")
     plt.yticks([]) 
-    plt.xlim(values[:,1].min(), values[:,1].max())
+    plt.xlim((values[:,2].min()-values[:,2].min())/1e6, (values[:,2].max()-values[:,2].min())/1e6)
     
 
 
 
 
 plt.subplot(2, 1, 2)
-plt.plot(values[:,1], values[:,4], label="Raw")
-plt.scatter(values[:,1], np.zeros(len(values)), s=5, label = "Datapoint") 
-# plt.plot(values[:,1], values[:,5], label="Moving Average")
-# plt.plot(values[:,1], values[:,9]/1000., label="Motor Speed")
-plt.plot(values[1:,1], np.diff(values[:,3]), label="Encoder diff")
-# plt.plot(values[1:,1], values[1:,2]/1000., label="dt")
+plt.plot((values[:,2]-values[:,2].min())/1e6, values[:,7], label="Raw")
+# plt.scatter(values[:,2], np.zeros(len(values)), s=5, label = "Datapoint") 
+# plt.plot(values[1:,2], abs(np.diff(values[:,5])), label="Encoder diff")
+# plt.plot(values[:,2], abs(values[:,6]), label="Encoder value diff")
 
-
-plt.xlabel("Timestamp (microseconds)")
-plt.ylabel("Angular velocity (degrees/s)")
+plt.xlabel("Time (s)")
+plt.ylabel("Angular velocity ($^\circ$/s)")
 plt.grid()
 
 
 plt.legend(bbox_to_anchor=(1.04, 0.7), loc="upper left")
-plt.xlim(values[:,1].min(), values[:,1].max())
-plt.tight_layout()
+plt.xlim((values[:,2].min()-values[:,2].min())/1e6, (values[:,2].max()-values[:,2].min())/1e6)
 plt.show()
 
 
+plt.plot(values[:,2], values[:,5], label="Encoder value")
+plt.show()
 
-def plot_fft(signal, sampling_rate):
-    N = len(signal)  # Number of samples
-    freq = np.fft.fftfreq(N, d=1/sampling_rate)  # Frequency bins
-    fft_values = np.fft.fft(signal)  # Compute FFT
+
+# def plot_fft(signal, sampling_rate):
+#     N = len(signal)  # Number of samples
+#     freq = np.fft.fftfreq(N, d=1/sampling_rate)  # Frequency bins
+#     fft_values = np.fft.fft(signal)  # Compute FFT
     
-    # Plot only the positive half of the spectrum
-    half_N = N // 2  
-    plt.figure(figsize=(8, 4))
-    plt.plot(freq[:half_N], np.abs(fft_values[:half_N]) / N, label='Magnitude Spectrum')
-    plt.xlabel('Frequency (Hz)')
-    plt.ylabel('Amplitude')
-    plt.title('FFT of the Signal')
-    plt.grid()
-    plt.legend()
-    plt.show()
+#     # Plot only the positive half of the spectrum
+#     half_N = N // 2  
+#     plt.figure(figsize=(8, 4))
+#     plt.plot(freq[:half_N], np.abs(fft_values[:half_N]) / N, label='Magnitude Spectrum')
+#     plt.xlabel('Frequency (Hz)')
+#     plt.ylabel('Amplitude')
+#     plt.title('FFT of the Signal')
+#     plt.grid()
+#     plt.legend()
+#     plt.show()
 
-plot_fft(values[:, 4], 1000)
-
-
-exit()
+# plot_fft(values[:, 4], 1000)
 
 
+# exit()
 
-total = 0
-row_count = 0
-values = []
 
-mean = total / row_count
-variance = sum((x - mean) ** 2 for x in values) / (row_count - 1)  # Bessel's correction
-std_dev = math.sqrt(variance)
 
-print(std_dev)
+# total = 0
+# row_count = 0
+# values = []
+
+# mean = total / row_count
+# variance = sum((x - mean) ** 2 for x in values) / (row_count - 1)  # Bessel's correction
+# std_dev = math.sqrt(variance)
+
+# print(std_dev)
 
 
 

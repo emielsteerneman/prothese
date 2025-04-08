@@ -53,21 +53,22 @@ unsigned long previous_PID_timestamp = 0;
 unsigned long previous_encoder_timestamp = 0;
 float elbow_angle = 0;
 float previous_elbow_angle = 0;
-#define FILTER_SIZE 5  // Number of values for moving average // waarom is dit een define en niet een const?
+float previous_encoder_value = 0; // previous encoder value
+#define FILTER_SIZE 12  // Number of values for moving average // waarom is dit een define en niet een const?
 double velocity_buffer[FILTER_SIZE] = {0};  // Circular buffer for velocity values
 int velocity_index = 0;  // Index for buffer
-double reference_velocity = 12.5;
-double input_velocity = 0;
+double reference_velocity = -12.5;
+double input_velocity = -12.5;
 double output_velocity = 0; // moet dit 21000 worden?
-double K_p = 1.0, K_i = 0.0, K_d = 0.0;  // Tuning parameters (pas aan voor optimale prestaties)
+double K_p = 10.0, K_i = 2.0, K_d = 10.0;  // Tuning parameters (pas aan voor optimale prestaties)
 double error_velocity = 0; // difference between setpoint and processVariable  
 double previous_error_velocity = 0; // error in previous iteration  
 double PID_integral = 0; // integral of error  
 double PID_derivative = 0; // derivative of error  
 float average_velocity = 0; // average velocity of the motor
-float motor_speed = 0; // motor speed
+float motor_speed = 0.0;//20000;//0; // motor speed
 const float MAX_SPEED = 31400.0;
-const float MIN_SPEED = 21000.0;
+const float MIN_SPEED = 20000;//22600; //21000.0;
 bool check_for_noise = false;
 uint8_t turn_around_counter = 0;
 uint32_t log_counter = 0;
@@ -105,17 +106,39 @@ uint8_t unsafe_encoder_measurements = 0;
 float acc[3] = {0, 0, 0};
 float gyr[3] = {0, 0, 0};
 
+// variables ModelPredictiveControl
+const float elbow_radius = 42.426; // mm
+const float linear_velocity = 0.0003125; // mm/s --> lead/(microsteps per revolution) = 2/(2*16*200) = 0.0003125 mm/step
+float motor_speed_MPC = 0.0; // motor speed in degrees/s
+const float d = 30.0; // afstand van M naar A
+const float h = 60.0; // afstand van A naar B
+
+unsigned long last_speed_increase_time = 0; // Timestamp of the last speed increase
+
 
 // const float gear_ratio = 1.0;  // Pas aan als je een overbrenging hebt
 
+// float calculateElbowAngle(uint16_t encoder_value) {
+//     // const float ENCODER_TO_ARM_OFFSET_DEGREES = 7.03125; // kan dit globaal? voor het geval de waarde verandert
+
+//     float encoder_degrees = encoder_value * AS5600_RAW_TO_DEGREES;
+
+//     return encoder_degrees - ENCODER_TO_ELBOW_OFFSET_DEGREES;
+// }
 
 void move_to_10_degrees(){
     while(true){
+        // unsigned long encoder_timestamp = micros();
+        // AS5048B
         encoder_value = encoder.angleR(ENCODER_RAW, true);
         elbow_angle = (encoder.angleR(ENCODER_DEGREES, true)-293.5)*-1;
+        
+        // AS5600
+        // encoder_value = encoder.readAngle(); // read encoder value
+        // elbow_angle = calculateElbowAngle(encoder_value);
 
         /* EMERGENCY BREAK */ // Deze verplaatsen zodat angular velocity meteen onder de enocder meting komt
-        if (elbow_angle < 3 || 90 < elbow_angle) {
+        if (elbow_angle < 3 || 92 < elbow_angle) {
             unsafe_encoder_measurements++;
             if(unsafe_encoder_measurements > 3){
                 sendTextToPcf("EMERGENCY STOPPED: Elbow angle out of bounds: %6.2f", elbow_angle);
@@ -142,6 +165,413 @@ void move_to_10_degrees(){
 
         delay(20);
     }
+}
+
+void move_to_5_degrees(){
+    while(true){
+        // unsigned long encoder_timestamp = micros();
+        // AS5048B
+        encoder_value = encoder.angleR(ENCODER_RAW, true);
+        elbow_angle = (encoder.angleR(ENCODER_DEGREES, true)-293.5)*-1;
+        
+        // AS5600
+        // encoder_value = encoder.readAngle(); // read encoder value
+        // elbow_angle = calculateElbowAngle(encoder_value);
+
+        /* EMERGENCY BREAK */ // Deze verplaatsen zodat angular velocity meteen onder de enocder meting komt
+        if (elbow_angle < 3 || 92 < elbow_angle) {
+            unsafe_encoder_measurements++;
+            if(unsafe_encoder_measurements > 3){
+                sendTextToPcf("EMERGENCY STOPPED: Elbow angle out of bounds: %6.2f", elbow_angle);
+                disableMotor();
+                emergency_stop = true;
+                return;
+            }else{
+                sendTextToPcf("WARNING %d: Elbow angle out of bounds: %6.2f", unsafe_encoder_measurements, elbow_angle);
+            }
+        }else{
+            unsafe_encoder_measurements = 0;
+        }
+
+        float error = 5 - elbow_angle;
+
+        // Stop when we reached our target angle (or at least close enough)
+        if( fabs(error) < 1){
+            disableMotor();
+            sendTextToPc("Reached 10 degrees");
+            return;
+        }
+
+        turnStepsPerSecond(31400, error < 0); // True = extend
+
+        delay(20);
+    }
+}
+
+void move_to_15_degrees(){
+    while(true){
+        // unsigned long encoder_timestamp = micros();
+        // AS5048B
+        encoder_value = encoder.angleR(ENCODER_RAW, true);
+        elbow_angle = (encoder.angleR(ENCODER_DEGREES, true)-293.5)*-1;
+        
+        // AS5600
+        // encoder_value = encoder.readAngle(); // read encoder value
+        // elbow_angle = calculateElbowAngle(encoder_value);
+
+        /* EMERGENCY BREAK */ // Deze verplaatsen zodat angular velocity meteen onder de enocder meting komt
+        if (elbow_angle < 3 || 92 < elbow_angle) {
+            unsafe_encoder_measurements++;
+            if(unsafe_encoder_measurements > 3){
+                sendTextToPcf("EMERGENCY STOPPED: Elbow angle out of bounds: %6.2f", elbow_angle);
+                disableMotor();
+                emergency_stop = true;
+                return;
+            }else{
+                sendTextToPcf("WARNING %d: Elbow angle out of bounds: %6.2f", unsafe_encoder_measurements, elbow_angle);
+            }
+        }else{
+            unsafe_encoder_measurements = 0;
+        }
+
+        float error = 15 - elbow_angle;
+
+        // Stop when we reached our target angle (or at least close enough)
+        if( fabs(error) < 1){
+            disableMotor();
+            sendTextToPc("Reached 10 degrees");
+            return;
+        }
+
+        turnStepsPerSecond(31400, error < 0); // True = extend
+
+        delay(20);
+    }
+}
+
+void move_to_25_degrees(){
+    while(true){
+        // unsigned long encoder_timestamp = micros();
+        // AS5048B
+        encoder_value = encoder.angleR(ENCODER_RAW, true);
+        elbow_angle = (encoder.angleR(ENCODER_DEGREES, true)-293.5)*-1;
+        
+        // AS5600
+        // encoder_value = encoder.readAngle(); // read encoder value
+        // elbow_angle = calculateElbowAngle(encoder_value);
+
+        /* EMERGENCY BREAK */ // Deze verplaatsen zodat angular velocity meteen onder de enocder meting komt
+        if (elbow_angle < 3 || 92 < elbow_angle) {
+            unsafe_encoder_measurements++;
+            if(unsafe_encoder_measurements > 3){
+                sendTextToPcf("EMERGENCY STOPPED: Elbow angle out of bounds: %6.2f", elbow_angle);
+                disableMotor();
+                emergency_stop = true;
+                return;
+            }else{
+                sendTextToPcf("WARNING %d: Elbow angle out of bounds: %6.2f", unsafe_encoder_measurements, elbow_angle);
+            }
+        }else{
+            unsafe_encoder_measurements = 0;
+        }
+
+        float error = 25 - elbow_angle;
+
+        // Stop when we reached our target angle (or at least close enough)
+        if( fabs(error) < 1){
+            disableMotor();
+            sendTextToPc("Reached 10 degrees");
+            return;
+        }
+
+        turnStepsPerSecond(31400, error < 0); // True = extend
+
+        delay(20);
+    }
+}
+
+void move_to_35_degrees(){
+    while(true){
+        // unsigned long encoder_timestamp = micros();
+        // AS5048B
+        encoder_value = encoder.angleR(ENCODER_RAW, true);
+        elbow_angle = (encoder.angleR(ENCODER_DEGREES, true)-293.5)*-1;
+        
+        // AS5600
+        // encoder_value = encoder.readAngle(); // read encoder value
+        // elbow_angle = calculateElbowAngle(encoder_value);
+
+        /* EMERGENCY BREAK */ // Deze verplaatsen zodat angular velocity meteen onder de enocder meting komt
+        if (elbow_angle < 3 || 92 < elbow_angle) {
+            unsafe_encoder_measurements++;
+            if(unsafe_encoder_measurements > 3){
+                sendTextToPcf("EMERGENCY STOPPED: Elbow angle out of bounds: %6.2f", elbow_angle);
+                disableMotor();
+                emergency_stop = true;
+                return;
+            }else{
+                sendTextToPcf("WARNING %d: Elbow angle out of bounds: %6.2f", unsafe_encoder_measurements, elbow_angle);
+            }
+        }else{
+            unsafe_encoder_measurements = 0;
+        }
+
+        float error = 35 - elbow_angle;
+
+        // Stop when we reached our target angle (or at least close enough)
+        if( fabs(error) < 1){
+            disableMotor();
+            sendTextToPc("Reached 10 degrees");
+            return;
+        }
+
+        turnStepsPerSecond(31400, error < 0); // True = extend
+
+        delay(20);
+    }
+}
+
+void move_to_45_degrees(){
+    while(true){
+        // unsigned long encoder_timestamp = micros();
+        // AS5048B
+        encoder_value = encoder.angleR(ENCODER_RAW, true);
+        elbow_angle = (encoder.angleR(ENCODER_DEGREES, true)-293.5)*-1;
+        
+        // AS5600
+        // encoder_value = encoder.readAngle(); // read encoder value
+        // elbow_angle = calculateElbowAngle(encoder_value);
+
+        /* EMERGENCY BREAK */ // Deze verplaatsen zodat angular velocity meteen onder de enocder meting komt
+        if (elbow_angle < 3 || 92 < elbow_angle) {
+            unsafe_encoder_measurements++;
+            if(unsafe_encoder_measurements > 3){
+                sendTextToPcf("EMERGENCY STOPPED: Elbow angle out of bounds: %6.2f", elbow_angle);
+                disableMotor();
+                emergency_stop = true;
+                return;
+            }else{
+                sendTextToPcf("WARNING %d: Elbow angle out of bounds: %6.2f", unsafe_encoder_measurements, elbow_angle);
+            }
+        }else{
+            unsafe_encoder_measurements = 0;
+        }
+
+        float error = 45 - elbow_angle;
+
+        // Stop when we reached our target angle (or at least close enough)
+        if( fabs(error) < 1){
+            disableMotor();
+            sendTextToPc("Reached 90 degrees");
+            return;
+        }
+
+        turnStepsPerSecond(31400, error < 0); // True = extend
+
+        delay(20);
+    }
+}
+
+void move_to_55_degrees(){
+    while(true){
+        // unsigned long encoder_timestamp = micros();
+        // AS5048B
+        encoder_value = encoder.angleR(ENCODER_RAW, true);
+        elbow_angle = (encoder.angleR(ENCODER_DEGREES, true)-293.5)*-1;
+        
+        // AS5600
+        // encoder_value = encoder.readAngle(); // read encoder value
+        // elbow_angle = calculateElbowAngle(encoder_value);
+
+        /* EMERGENCY BREAK */ // Deze verplaatsen zodat angular velocity meteen onder de enocder meting komt
+        if (elbow_angle < 3 || 92 < elbow_angle) {
+            unsafe_encoder_measurements++;
+            if(unsafe_encoder_measurements > 3){
+                sendTextToPcf("EMERGENCY STOPPED: Elbow angle out of bounds: %6.2f", elbow_angle);
+                disableMotor();
+                emergency_stop = true;
+                return;
+            }else{
+                sendTextToPcf("WARNING %d: Elbow angle out of bounds: %6.2f", unsafe_encoder_measurements, elbow_angle);
+            }
+        }else{
+            unsafe_encoder_measurements = 0;
+        }
+
+        float error = 45 - elbow_angle;
+
+        // Stop when we reached our target angle (or at least close enough)
+        if( fabs(error) < 1){
+            disableMotor();
+            sendTextToPc("Reached 90 degrees");
+            return;
+        }
+
+        turnStepsPerSecond(31400, error < 0); // True = extend
+
+        delay(20);
+    }
+}
+
+void move_to_90_degrees(){
+    while(true){
+        // unsigned long encoder_timestamp = micros();
+        // AS5048B
+        encoder_value = encoder.angleR(ENCODER_RAW, true);
+        elbow_angle = (encoder.angleR(ENCODER_DEGREES, true)-293.5)*-1;
+        
+        // AS5600
+        // encoder_value = encoder.readAngle(); // read encoder value
+        // elbow_angle = calculateElbowAngle(encoder_value);
+
+        /* EMERGENCY BREAK */ // Deze verplaatsen zodat angular velocity meteen onder de enocder meting komt
+        if (elbow_angle < 3 || 92 < elbow_angle) {
+            unsafe_encoder_measurements++;
+            if(unsafe_encoder_measurements > 3){
+                sendTextToPcf("EMERGENCY STOPPED: Elbow angle out of bounds: %6.2f", elbow_angle);
+                disableMotor();
+                emergency_stop = true;
+                return;
+            }else{
+                sendTextToPcf("WARNING %d: Elbow angle out of bounds: %6.2f", unsafe_encoder_measurements, elbow_angle);
+            }
+        }else{
+            unsafe_encoder_measurements = 0;
+        }
+
+        float error = 90 - elbow_angle;
+
+        // Stop when we reached our target angle (or at least close enough)
+        if( fabs(error) < 1){
+            disableMotor();
+            sendTextToPc("Reached 90 degrees");
+            return;
+        }
+
+        turnStepsPerSecond(31400, error < 0); // True = extend
+
+        delay(20);
+    }
+}
+
+float convertToRadians(float value_in_degrees){
+    return value_in_degrees * (M_PI / 180.0);
+}
+
+void ModelPredictiveControl(){
+   if (BLUETOOTH){
+    // Determine time since last tick
+    // unsigned long PID_timestamp = micros();
+
+    // unsigned long delta_PID_timestamp = PID_timestamp - previous_PID_timestamp;
+    // previous_PID_timestamp = PID_timestamp;
+
+    // read encoder
+    unsigned long encoder_timestamp = micros();
+
+    encoder_value = encoder.angleR(ENCODER_RAW, true);
+    elbow_angle = (encoder.angleR(ENCODER_DEGREES, true)-293.5)*-1;
+
+    float delta_encoder_value = encoder_value - previous_encoder_value;
+    previous_encoder_value = encoder_value;
+    if(elbow_angle < 0){
+        elbow_angle += 360;
+    }
+
+
+    /* EMERGENCY BREAK */ // Deze verplaatsen zodat angular velocity meteen onder de enocder meting komt
+    if (elbow_angle < 3 || 92 < elbow_angle) {
+        unsafe_encoder_measurements++;
+        if(unsafe_encoder_measurements > 3){
+            sendTextToPcf("EMERGENCY STOPPED: Elbow angle out of bounds: %6.2f", elbow_angle);
+            disableMotor();
+            emergency_stop = true;
+            return;
+        }else{
+            sendTextToPcf("WARNING %d: Elbow angle out of bounds: %6.2f", unsafe_encoder_measurements, elbow_angle);
+        }
+    }else{
+        unsafe_encoder_measurements = 0;
+    }
+
+    // Ignore any measurements that are not possible
+    if (elbow_angle > 95 && elbow_angle < 353) {
+        sendTextToPcf("IMPOSIBLE ANGLE: %6.2f", elbow_angle);
+        return;
+    }
+
+    // **Bereken snelheid in graden per seconde**
+    float delta_elbow_angle = elbow_angle - previous_elbow_angle;  // Hoekverandering          
+    float delta_encoder_timestamp = (encoder_timestamp - previous_encoder_timestamp) / 1000000.0; // Convert to seconds
+    float raw_velocity = delta_elbow_angle / delta_encoder_timestamp; // Compute raw velocity
+
+    previous_elbow_angle = elbow_angle; // update arm angle
+    previous_encoder_timestamp = encoder_timestamp; // update time
+
+    // Store value in moving average buffer
+    velocity_buffer[velocity_index] = raw_velocity;
+    velocity_index = (velocity_index + 1) % FILTER_SIZE; // Circular buffer
+
+    // Compute moving average
+    float velocity_sum = 0;
+    for (int i = 0; i < FILTER_SIZE; i++) {
+        velocity_sum += velocity_buffer[i];
+    }
+    input_velocity = velocity_sum / FILTER_SIZE;  // Smoothed velocity
+    average_velocity = velocity_sum / FILTER_SIZE;
+
+
+
+    // Keep waving
+    if(elbow_angle < 5){
+        turn_around_counter++;
+        if(turn_around_counter > 3){
+            reference_velocity = abs(reference_velocity);
+            turn_around_counter = 0;
+            disableMotor(); // move this when changing direction
+            emergency_stop = true; // move this when changing direction
+            return; // move this when changing direction
+
+        }
+    }else
+    if(elbow_angle > 90){
+        turn_around_counter++;
+        if(turn_around_counter > 3){
+            reference_velocity = -abs(reference_velocity);
+            turn_around_counter = 0; 
+            // move it here
+        }
+    }else{
+        turn_around_counter = 0;
+    }
+
+    motor_speed = (convertToRadians(fabs(reference_velocity)) * elbow_radius * cos(convertToRadians(45-elbow_angle))) / linear_velocity;
+
+    turnStepsPerSecond((uint32_t) motor_speed, reference_velocity < 0);  
+
+    // Print data
+    sendDataToPcf("N: %6d, t: %6lu, dt: %5.2f, REF: %5.2f, ENC_RAW: %5d, dENC_RAW: %5.2f, ENC_DEG: %5.2f, VEL_RAW: %6.2f, VEL_AVG: %6.2f, VEL_ERR: %5.2f, I: %8.2f, D: %5.2f, Kp: %5.2f, Ki: %5.2f, Kd: %5.2f, MS: %5.2f",
+
+        log_counter,
+        encoder_timestamp,
+        delta_encoder_timestamp,
+        reference_velocity,
+        encoder_value,
+        delta_encoder_value,
+        elbow_angle,
+        raw_velocity,
+        average_velocity,
+        error_velocity,
+        PID_integral,
+        PID_derivative,
+        K_p,
+        K_i,
+        K_d,
+        motor_speed
+    );
+    log_counter++;
+
+   }
 }
 
 void timerInterrupt(){
@@ -178,14 +608,6 @@ void transformGyroscopeData(float& gx, float& gy, float& gz){
     gz = gzTransformed;
 }
 
-// float calculateElbowAngle(uint16_t encoder_value) {
-//     // const float ENCODER_TO_ARM_OFFSET_DEGREES = 7.03125; // kan dit globaal? voor het geval de waarde verandert
-
-//     float encoder_degrees = encoder_value * AS5600_RAW_TO_DEGREES;
-
-//     return encoder_degrees - ENCODER_TO_ELBOW_OFFSET_DEGREES;
-// }
-
 void PIDControl(){
     if (BLUETOOTH) {
         // Determine time since last tick
@@ -194,9 +616,14 @@ void PIDControl(){
             
         // Read encoder
         unsigned long encoder_timestamp = micros();
+        // encoder_value = encoder.readAngle(); // read encoder value
+        // elbow_angle = calculateElbowAngle(encoder_value);
 
         encoder_value = encoder.angleR(ENCODER_RAW, true);
         elbow_angle = (encoder.angleR(ENCODER_DEGREES, true)-293.5)*-1;
+
+        float delta_encoder_value = encoder_value - previous_encoder_value;
+        previous_encoder_value = encoder_value;
         if(elbow_angle < 0){
             elbow_angle += 360;
         }
@@ -207,7 +634,7 @@ void PIDControl(){
 
 
         /* EMERGENCY BREAK */ // Deze verplaatsen zodat angular velocity meteen onder de enocder meting komt
-        if (elbow_angle < 3 || 90 < elbow_angle) {
+        if (elbow_angle < 3 || 92 < elbow_angle) {
             unsafe_encoder_measurements++;
             if(unsafe_encoder_measurements > 3){
                 sendTextToPcf("EMERGENCY STOPPED: Elbow angle out of bounds: %6.2f", elbow_angle);
@@ -222,7 +649,7 @@ void PIDControl(){
         }
 
         // Ignore any measurements that are not possible
-        if (elbow_angle > 100 && elbow_angle < 353) {
+        if (elbow_angle > 95 && elbow_angle < 353) {
             sendTextToPcf("IMPOSIBLE ANGLE: %6.2f", elbow_angle);
             return;
         }
@@ -233,6 +660,7 @@ void PIDControl(){
 
 
         // **Bereken snelheid in graden per seconde**
+// **Bereken snelheid in graden per seconde**
         float delta_elbow_angle = elbow_angle - previous_elbow_angle;  // Hoekverandering          
         float delta_encoder_timestamp = (encoder_timestamp - previous_encoder_timestamp) / 1000000.0; // Convert to seconds
         float raw_velocity = delta_elbow_angle / delta_encoder_timestamp; // Compute raw velocity
@@ -259,46 +687,61 @@ void PIDControl(){
         previous_error_velocity = error_velocity; 
         average_velocity = velocity_sum / FILTER_SIZE;
 
-        // control motor
+        // // control motor
         motor_speed += output_velocity;
         motor_speed = constrain(motor_speed, MIN_SPEED, MAX_SPEED);
         // motor_speed=21000;
         // turnStepsPerSecond((uint32_t) motor_speed, 0);
 
         // Keep waving
-        if(elbow_angle < 10){
+        if(elbow_angle < 5){
             turn_around_counter++;
             if(turn_around_counter > 3){
                 reference_velocity = abs(reference_velocity);
                 turn_around_counter = 0;
+                disableMotor(); // move this when changing direction
+                emergency_stop = true; // move this when changing direction
+                return; // move this when changing direction
+
             }
         }else
-        if(elbow_angle > 80){
+        if(elbow_angle > 90){
             turn_around_counter++;
             if(turn_around_counter > 3){
                 reference_velocity = -abs(reference_velocity);
                 turn_around_counter = 0; 
+                // move it here
             }
         }else{
             turn_around_counter = 0;
         }
 
         // turnStepsPerSecond((uint32_t) 21000, reference_velocity < 0);
+        // motor_speed=31400;
         turnStepsPerSecond((uint32_t) motor_speed, reference_velocity < 0);  
 
         // Print data
-        sendDataToPcf("N: %6d, t: %6lu, dt: %lu, REF: %5.2f, ENC_RAW: %5d, ENC_DEG: %5.2f, VEL_RAW: %6.2f, VEL_AVG: %6.2f, VEL_ERR: %5.2f, I: %8.2f, D: %5.2f, MS: %5.2f",
+        sendDataToPcf("N: %6d, t: %6lu, dt: %lu, REF: %5.2f, ENC_RAW: %5d, dENC_RAW: %5.2f, ENC_DEG: %5.2f, VEL_RAW: %6.2f, VEL_AVG: %6.2f, VEL_ERR: %5.2f, I: %8.2f, D: %5.2f, Kp: %5.2f, Ki: %5.2f, Kd: %5.2f, MS: %5.2f",
+        // sendDataToPcf("%6d,%6lu,%lu,%5.2f,%5d,%5.2f,%6.2f,%6.2f,%5.2f,%8.2f,%5.2f,%5.2f",
+        // sendDataToPcf("%lu,%5d,%6.2f,%6.2f",
+        // sendDataToPcf("%6d, %6lu, %lu, %5.2f, %5d, %5.2f, %5.2f, %6.2f, %6.2f, %5.2f, %8.2f, %5.2f, %5.2f",
+
+
             log_counter,
             PID_timestamp,
             delta_PID_timestamp,
             reference_velocity,
             encoder_value,
+            delta_encoder_value,
             elbow_angle,
             raw_velocity,
             average_velocity,
             error_velocity,
             PID_integral,
             PID_derivative,
+            K_p,
+            K_i,
+            K_d,
             motor_speed
         );
         log_counter++;
@@ -510,6 +953,394 @@ void waitForLRInput(){
     }
 }
 
+void move_5_to_90_to_5(){
+    if (BLUETOOTH) {
+        // Determine time since last tick
+        unsigned long PID_timestamp = micros();
+                   
+        // Read encoder
+        unsigned long encoder_timestamp = micros();
+        encoder_value = encoder.angleR(ENCODER_RAW, true);
+        elbow_angle = (encoder.angleR(ENCODER_DEGREES, true)-293.5)*-1;
+
+        float delta_encoder_value = encoder_value - previous_encoder_value;
+        previous_encoder_value = encoder_value;
+        if(elbow_angle < 0){
+            elbow_angle += 360;
+        }
+
+        /* EMERGENCY BREAK */ // Deze verplaatsen zodat angular velocity meteen onder de enocder meting komt
+        if (elbow_angle < 3 || 92 < elbow_angle) {
+            unsafe_encoder_measurements++;
+            if(unsafe_encoder_measurements > 3){
+                sendTextToPcf("EMERGENCY STOPPED: Elbow angle out of bounds: %6.2f", elbow_angle);
+                disableMotor();
+                emergency_stop = true;
+                return;
+            }else{
+                sendTextToPcf("WARNING %d: Elbow angle out of bounds: %6.2f", unsafe_encoder_measurements, elbow_angle);
+            }
+        }else{
+            unsafe_encoder_measurements = 0;
+        }
+
+        // Ignore any measurements that are not possible
+        if (elbow_angle > 95 && elbow_angle < 353) {
+            sendTextToPcf("IMPOSIBLE ANGLE: %6.2f", elbow_angle);
+            return;
+        }
+
+        // only for printing purposes
+        unsigned long delta_PID_timestamp = PID_timestamp - previous_PID_timestamp;
+        previous_PID_timestamp = PID_timestamp;
+
+
+        // **Bereken snelheid in graden per seconde**
+        float delta_elbow_angle = elbow_angle - previous_elbow_angle;  // Hoekverandering          
+        float delta_encoder_timestamp = (encoder_timestamp - previous_encoder_timestamp) / 1000000.0; // Convert to seconds
+        float raw_velocity = delta_elbow_angle / delta_encoder_timestamp; // Compute raw velocity
+
+        previous_elbow_angle = elbow_angle; // update arm angle
+        previous_encoder_timestamp = encoder_timestamp; // update time
+
+        // Store value in moving average buffer
+        velocity_buffer[velocity_index] = raw_velocity;
+        velocity_index = (velocity_index + 1) % FILTER_SIZE; // Circular buffer
+
+        // Compute moving average
+        float velocity_sum = 0;
+        for (int i = 0; i < FILTER_SIZE; i++) {
+            velocity_sum += velocity_buffer[i];
+        }
+        input_velocity = velocity_sum / FILTER_SIZE;  // Smoothed velocity
+
+        error_velocity = fabs(reference_velocity) - fabs(input_velocity);  
+        average_velocity = velocity_sum / FILTER_SIZE;
+
+        // Waving
+        if(elbow_angle < 5){
+            turn_around_counter++;
+            if(turn_around_counter > 3){
+                reference_velocity = abs(reference_velocity);
+                turn_around_counter = 0;
+
+                unsigned long now = millis();
+                if(now - last_speed_increase_time > 1000){
+                    motor_speed += 100;
+                    last_speed_increase_time = now;
+                }
+            }
+        }else
+        if(elbow_angle > 90){
+            turn_around_counter++;
+            if(turn_around_counter > 3){
+                reference_velocity = -abs(reference_velocity);
+                turn_around_counter = 0; 
+                // move it here
+            }
+        }else{
+            turn_around_counter = 0;
+        }
+
+        if (motor_speed > MAX_SPEED){
+            disableMotor();
+            return;
+        }
+
+        turnStepsPerSecond((uint32_t) motor_speed, reference_velocity < 0);  
+
+        // Print data
+        sendDataToPcf("N: %6d, t: %6lu, dt: %lu, REF: %5.2f, ENC_RAW: %5d, dENC_RAW: %5.2f, ENC_DEG: %5.2f, VEL_RAW: %6.2f, VEL_AVG: %6.2f, VEL_ERR: %5.2f, I: %8.2f, D: %5.2f, Kp: %5.2f, Ki: %5.2f, Kd: %5.2f, MS: %5.2f",
+
+            log_counter,
+            PID_timestamp,
+            delta_PID_timestamp,
+            reference_velocity,
+            encoder_value,
+            delta_encoder_value,
+            elbow_angle,
+            raw_velocity,
+            average_velocity,
+            error_velocity,
+            PID_integral,
+            PID_derivative,
+            K_p,
+            K_i,
+            K_d,
+            motor_speed
+        );
+        log_counter++;
+    }
+}
+
+void poging2ModelPredictiveControl(){
+    if (BLUETOOTH) {
+        // Determine time since last tick
+        // unsigned long PID_timestamp = micros();
+                   
+        // Read encoder
+        unsigned long encoder_timestamp = micros();
+        encoder_value = encoder.angleR(ENCODER_RAW, true);
+        elbow_angle = (encoder.angleR(ENCODER_DEGREES, true)-293.5)*-1;
+
+        unsigned long delta_encoder_value = encoder_value - previous_encoder_value;
+        previous_encoder_value = encoder_value;
+        if(elbow_angle < 0){
+            elbow_angle += 360;
+        }
+
+        /* EMERGENCY BREAK */ // Deze verplaatsen zodat angular velocity meteen onder de enocder meting komt
+        if (elbow_angle < 3 || 92 < elbow_angle) {
+            unsafe_encoder_measurements++;
+            if(unsafe_encoder_measurements > 3){
+                sendTextToPcf("EMERGENCY STOPPED: Elbow angle out of bounds: %6.2f", elbow_angle);
+                disableMotor();
+                emergency_stop = true;
+                return;
+            }else{
+                sendTextToPcf("WARNING %d: Elbow angle out of bounds: %6.2f", unsafe_encoder_measurements, elbow_angle);
+            }
+        }else{
+            unsafe_encoder_measurements = 0;
+        }
+
+        // Ignore any measurements that are not possible
+        if (elbow_angle > 95 && elbow_angle < 353) {
+            sendTextToPcf("IMPOSIBLE ANGLE: %6.2f", elbow_angle);
+            return;
+        }
+
+        // only for printing purposes
+        // unsigned long delta_PID_timestamp = PID_timestamp - previous_PID_timestamp;
+        // previous_PID_timestamp = PID_timestamp;
+
+
+        // **Bereken snelheid in graden per seconde**
+        float delta_elbow_angle = elbow_angle - previous_elbow_angle;  // Hoekverandering          
+        float delta_encoder_timestamp = (encoder_timestamp - previous_encoder_timestamp) / 1000000.0; // Convert to seconds
+        float raw_velocity = delta_elbow_angle / delta_encoder_timestamp; // Compute raw velocity
+
+        previous_elbow_angle = elbow_angle; // update arm angle
+        previous_encoder_timestamp = encoder_timestamp; // update time
+
+        // Store value in moving average buffer
+        velocity_buffer[velocity_index] = raw_velocity;
+        velocity_index = (velocity_index + 1) % FILTER_SIZE; // Circular buffer
+
+        // Compute moving average
+        float velocity_sum = 0;
+        for (int i = 0; i < FILTER_SIZE; i++) {
+            velocity_sum += velocity_buffer[i];
+        }
+        input_velocity = velocity_sum / FILTER_SIZE;  // Smoothed velocity
+
+        error_velocity = fabs(reference_velocity) - fabs(input_velocity);  
+        average_velocity = velocity_sum / FILTER_SIZE;
+
+        // Waving
+        if(elbow_angle < 5){
+            turn_around_counter++;
+            if(turn_around_counter > 3){
+                reference_velocity = abs(reference_velocity);
+                turn_around_counter = 0;
+
+                // unsigned long now = millis();
+                // if(now - last_speed_increase_time > 1000){
+                //     motor_speed += 100;
+                //     last_speed_increase_time = now;
+                // }
+            }
+        }else
+        if(elbow_angle > 90){
+            turn_around_counter++;
+            if(turn_around_counter > 3){
+                reference_velocity = -abs(reference_velocity);
+                turn_around_counter = 0; 
+                // move it here
+            }
+        }else{
+            turn_around_counter = 0;
+        }
+
+        // if (motor_speed > MAX_SPEED){
+        //     disableMotor();
+        //     return;
+        // }
+
+        motor_speed = (convertToRadians(fabs(reference_velocity)) * elbow_radius * cos(convertToRadians(45-elbow_angle))) / linear_velocity;
+
+        turnStepsPerSecond((uint32_t) motor_speed, reference_velocity < 0);  
+
+        // Print data
+        sendDataToPcf("N: %6d, t: %6lu, dt: %lu, REF: %5.2f, ENC_RAW: %5d, dENC_RAW: %5.2f, ENC_DEG: %5.2f, VEL_RAW: %6.2f, VEL_AVG: %6.2f, VEL_ERR: %5.2f, I: %8.2f, D: %5.2f, Kp: %5.2f, Ki: %5.2f, Kd: %5.2f, MS: %5.2f",
+
+            log_counter,
+            encoder_timestamp,
+            delta_encoder_timestamp,
+            reference_velocity,
+            encoder_value,
+            delta_encoder_value,
+            elbow_angle,
+            raw_velocity,
+            average_velocity,
+            error_velocity,
+            PID_integral,
+            PID_derivative,
+            K_p,
+            K_i,
+            K_d,
+            motor_speed
+        );
+        log_counter++;
+    }
+}
+
+void MPCWithPIDControl(){
+    if (BLUETOOTH) {
+        // Determine time since last tick
+        unsigned long PID_timestamp = micros();
+                    
+        // Read encoder
+        unsigned long encoder_timestamp = micros();
+        encoder_value = encoder.angleR(ENCODER_RAW, true);
+        elbow_angle = (encoder.angleR(ENCODER_DEGREES, true)-293.5)*-1;
+
+        float delta_encoder_value = encoder_value - previous_encoder_value;
+        previous_encoder_value = encoder_value;
+        if(elbow_angle < 0){
+            elbow_angle += 360;
+        }
+
+
+        /* EMERGENCY BREAK */ // Deze verplaatsen zodat angular velocity meteen onder de enocder meting komt
+        if (elbow_angle < 3 || 93 < elbow_angle) {
+            unsafe_encoder_measurements++;
+            if(unsafe_encoder_measurements > 3){
+                sendTextToPcf("EMERGENCY STOPPED: Elbow angle out of bounds: %6.2f", elbow_angle);
+                disableMotor();
+                emergency_stop = true;
+                return;
+            }else{
+                sendTextToPcf("WARNING %d: Elbow angle out of bounds: %6.2f", unsafe_encoder_measurements, elbow_angle);
+            }
+        }else{
+            unsafe_encoder_measurements = 0;
+        }
+
+        // Ignore any measurements that are not possible
+        if (elbow_angle > 95 && elbow_angle < 353) {
+            sendTextToPcf("IMPOSIBLE ANGLE: %6.2f", elbow_angle);
+            return;
+        }
+
+        // Keep waving
+        if(elbow_angle < 5){
+            turn_around_counter++;
+            if(turn_around_counter > 3){
+                reference_velocity = abs(reference_velocity);
+                turn_around_counter = 0;
+                disableMotor(); // move this when changing direction
+                emergency_stop = true; // move this when changing direction
+                return; // move this when changing direction
+               
+            }
+        }else
+        if(elbow_angle > 90){
+            turn_around_counter++;
+            if(turn_around_counter > 3){
+                reference_velocity = -abs(reference_velocity);
+                turn_around_counter = 0; 
+
+                // move it here
+            }
+        }else{
+            turn_around_counter = 0;
+        }
+        
+        unsigned long delta_PID_timestamp = PID_timestamp - previous_PID_timestamp;
+        previous_PID_timestamp = PID_timestamp;
+
+
+        // **Bereken snelheid in graden per seconde**
+        float delta_elbow_angle = elbow_angle - previous_elbow_angle;  // Hoekverandering          
+        float delta_encoder_timestamp = (encoder_timestamp - previous_encoder_timestamp) / 1000000.0; // Convert to seconds
+        float raw_velocity = delta_elbow_angle / delta_encoder_timestamp; // Compute raw velocity
+
+        previous_elbow_angle = elbow_angle; // update arm angle
+        previous_encoder_timestamp = encoder_timestamp; // update time
+
+        // Store value in moving average buffer
+        velocity_buffer[velocity_index] = raw_velocity;
+        velocity_index = (velocity_index + 1) % FILTER_SIZE; // Circular buffer
+
+        // Compute moving average
+        float velocity_sum = 0;
+        for (int i = 0; i < FILTER_SIZE; i++) {
+            velocity_sum += velocity_buffer[i];
+        }
+        input_velocity = velocity_sum / FILTER_SIZE;  // Smoothed velocity
+
+        // PID-calculations           
+        error_velocity = fabs(reference_velocity) - fabs(input_velocity);  
+        PID_integral += error_velocity;  
+        PID_derivative = error_velocity - previous_error_velocity;  
+        output_velocity = K_p * error_velocity + K_i * PID_integral + K_d * PID_derivative;  
+        previous_error_velocity = error_velocity; 
+        average_velocity = velocity_sum / FILTER_SIZE;
+
+        // motor_speed_MPC = ((convertToRadians(fabs(reference_velocity)) * elbow_radius * cos(convertToRadians(45-elbow_angle))) / linear_velocity);
+        // float numerator = fabs((d - r * sin_theta) * (r * cos_theta) + r * sin_theta * (h + r * cos_theta));
+        // float denominator = sqrt(pow((d - r * sin_theta), 2) + pow((h + r * cos_theta), 2));
+
+        float theta = convertToRadians(elbow_angle+45);
+        float sin_theta = sin(theta);
+        float cos_theta = cos(theta);
+
+        float numerator = fabs(
+            (30.0 - elbow_radius * sin_theta) * (elbow_radius * cos_theta) +
+            elbow_radius * sin_theta * (60.0 + elbow_radius * cos_theta)
+        );
+
+        float denominator = sqrt(
+            pow((30.0 - elbow_radius * sin_theta), 2) +
+            pow((60.0 + elbow_radius * cos_theta), 2)
+        );
+
+        float distance = numerator / denominator;
+
+        motor_speed_MPC = ((convertToRadians(fabs(reference_velocity)) * distance) / linear_velocity);
+
+        motor_speed = motor_speed_MPC + output_velocity;
+        motor_speed = constrain(motor_speed, MIN_SPEED, MAX_SPEED);
+
+        turnStepsPerSecond((uint32_t) motor_speed, reference_velocity < 0);  
+
+        // Print data
+        // sendDataToPcf("N: %4d, t: %6lu, dt: %lu, REF: %5.2f, ENC_RAW: %5d, dENC_RAW: %5.2f, ENC_DEG: %5.2f, VEL_RAW: %5.2f, VEL_AVG: %5.2f, VEL_ERR: %5.2f, I: %5.2f, D: %5.2f, Kp: %5.2f, Ki: %5.2f, Kd: %5.2f, VEL_OUT: %5.2f, VEL_MPC: %5.2f, MS: %5.2f",
+        sendDataToPcf("N: %4d, t: %6lu, dt: %lu, REF: %5.2f, ENC_RAW: %5d, dENC_RAW: %5.2f, ENC_DEG: %5.2f, VEL_RAW: %5.2f, VEL_AVG: %5.2f, VEL_ERR: %5.2f, Kp: %5.2f, Ki: %5.2f, Kd: %5.2f, VEL_OUT: %5.2f, VEL_MPC: %5.2f, MS: %5.2f",
+
+            log_counter,
+            PID_timestamp,
+            delta_PID_timestamp,
+            reference_velocity,
+            encoder_value,
+            delta_encoder_value,
+            elbow_angle,
+            raw_velocity,
+            average_velocity,
+            error_velocity,
+            // PID_integral,
+            // PID_derivative,
+            K_p,
+            K_i,
+            K_d,
+            output_velocity,
+            motor_speed_MPC,
+            motor_speed
+        );
+        log_counter++;
+    }
+}
 // setup, runs once
 void setup() {
     Serial.begin(115200);
@@ -526,7 +1357,9 @@ void setup() {
     sendTextToPcf("Setup completed after %d ms!", millis()); 
     delay(500);
     
-    move_to_10_degrees();
+    // move_to_5_degrees();
+    // move_to_45_degrees();
+    move_to_90_degrees();
     delay(1000);
 
     timer.attach(&timerInterrupt, std::chrono::milliseconds(20));
@@ -565,6 +1398,12 @@ void loop() { //volgorde eventueel aanpassen
         }
     } 
 
+
+    if(timer_interrupt){
+        MPCWithPIDControl();
+        timer_interrupt = false;
+    }
+
     //  // Read the IMU data
     //  IMU.readAcceleration(acc[0], acc[1], acc[2]);
     //  IMU.readGyroscope(gyr[0], gyr[1], gyr[2]);
@@ -578,11 +1417,13 @@ void loop() { //volgorde eventueel aanpassen
     //  float omega_z = 0;
 
     //  mahony.updateIMU(gyr[0], gyr[1], gyr[2], acc[0], acc[1], acc[2], omega_x, omega_y, omega_z);
+    
 
-    if(timer_interrupt){
-        PIDControl();
-        timer_interrupt = false;
-    }
+
+    // if(timer_interrupt){
+    //     PIDControl();
+    //     timer_interrupt = false;
+    // }
 
     // algorithm1(omega_x, elbow_angle);
     // algorithm2(omega_x, elbow_angle);
