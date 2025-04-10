@@ -95,7 +95,7 @@ with open(bestandsnaam_2, "r") as file_2:
 #             raw_velocities.append(float(raw_velocity))
 #             average_velocities.append(float(average_velocity))
 
-# plt.plot(PID_timestamps, average_velocities, label="Encoder 2")
+# plt.plot(PID_timestamps, average_velocities, label="Encoder Oud")
 # plt.xlabel("Tijd (s)")
 # plt.ylabel("Snelheid (deg/s)")
 # plt.title("Snelheidsfluctuaties")
@@ -119,13 +119,28 @@ length_2 = len(error_velocities_2)
 average_error_2 = total_error_2 / len(error_velocities_2)
 print(f"2: total: {total_error_2:.2f}, length: {length_2:.2f}, Average error velocity: {average_error_2:.2f}")
 
+
+
 plt.figure(figsize=(10,5))
-plt.plot(PID_timestamps_smooth_1, raw_velocities_smooth_1, label="Encoder 1")
-plt.plot(PID_timestamps_smooth_2, raw_velocities_smooth_2, label="Encoder 2")
-plt.xlabel("Tijd (s)")
+plt.plot(PID_timestamps_1, raw_velocities_1, label="Encoder Nieuw")
+plt.plot(PID_timestamps_2, raw_velocities_2, label="Encoder Oud")
+plt.xlabel("Tijd")
 plt.ylabel("Snelheid (deg/s)")
-plt.title("Snelheidsfluctuaties")
+plt.title("Snelheidsfluctuaties Raw")
 plt.legend()
+plt.grid()
+plt.show()
+
+
+
+plt.figure(figsize=(10,5))
+plt.plot(PID_timestamps_smooth_1, raw_velocities_smooth_1, label="Encoder Nieuw")
+plt.plot(PID_timestamps_smooth_2, raw_velocities_smooth_2, label="Encoder Oud")
+plt.xlabel("Tijd")
+plt.ylabel("Snelheid (deg/s)")
+plt.title("Snelheidsfluctuaties Smooth")
+plt.legend()
+plt.grid()
 plt.show()
 
 
@@ -154,8 +169,8 @@ print(f"Sample rate Encoder 2: {sample_rate_2:.2f} Hz")
 
 
 plt.figure(figsize=(10,5))
-plt.plot(frequenties_1[:len(PID_timestamps_1)//2], fft_spectrum1[:len(PID_timestamps_1)//2], label="Encoder 1")
-plt.plot(frequenties_2[:len(PID_timestamps_2)//2], fft_spectrum2[:len(PID_timestamps_2)//2], label="Encoder 2")
+plt.plot(frequenties_1[:len(PID_timestamps_1)//2], fft_spectrum1[:len(PID_timestamps_1)//2], label="Encoder Nieuw")
+plt.plot(frequenties_2[:len(PID_timestamps_2)//2], fft_spectrum2[:len(PID_timestamps_2)//2], label="Encoder Oud")
 plt.xlabel("Frequentie (Hz)")
 plt.ylabel("Amplitude")
 plt.title("FFT - Frequentiespectrum van snelheid")
@@ -185,8 +200,8 @@ filtered_error_2 = np.array(filtered_vel_2) - desired_speed
 
 # Plot het histogram opnieuw
 plt.figure(figsize=(10,5))
-plt.hist(filtered_error_1, bins=30, alpha=0.5, label="Encoder 1 (gefilterd)", color='blue')
-plt.hist(filtered_error_2, bins=30, alpha=0.5, label="Encoder 2 (gefilterd)", color='red')
+plt.hist(filtered_error_1, bins=30, alpha=0.5, label="Encoder Nieuw (gefilterd)", color='blue')
+plt.hist(filtered_error_2, bins=30, alpha=0.5, label="Encoder Oud (gefilterd)", color='red')
 plt.xlabel("Snelheidsfout (RPM)")
 plt.ylabel("Frequentie")
 plt.title("Histogram van snelheidsfout na filtering")
@@ -195,8 +210,8 @@ plt.show()
 
 
 plt.figure(figsize=(10,5))
-plt.plot(PID_timestamps_1, raw_velocities_1, label="Encoder A - Ruw signaal", alpha=0.5)
-plt.plot(PID_timestamps_1, filtered_error_1, label="Encoder A - Gefilterd", color="red")
+plt.plot(PID_timestamps_1, raw_velocities_1, label="Encoder Nieuw - Ruw signaal", alpha=0.5)
+plt.plot(PID_timestamps_1, filtered_error_1, label="Encoder Nieuw - Gefilterd", color="red")
 plt.xlabel("Tijd (s)")
 plt.ylabel("Gemeten snelheid (RPM)")
 plt.title("Effect van low-pass filtering op Encoder A")
@@ -238,9 +253,9 @@ smoothed_vel_A = moving_average(raw_velocities_1, window_size=15)
 
 # Plot everything
 plt.figure(figsize=(10,5))
-plt.plot(PID_timestamps_1, raw_velocities_1, label="Encoder A - Raw", alpha=0.5)
-plt.plot(PID_timestamps_1, filtered_vel_A, label="Encoder A - Low-Pass Filtered", color="red")
-plt.plot(PID_timestamps_1, smoothed_vel_A, label="Encoder A - Moving Average", color="green", linestyle="dashed")
+plt.plot(PID_timestamps_1, raw_velocities_1, label="Encoder Nieuw - Raw", alpha=0.5)
+plt.plot(PID_timestamps_1, filtered_vel_A, label="Encoder Nieuw - Low-Pass Filtered", color="red")
+plt.plot(PID_timestamps_1, smoothed_vel_A, label="Encoder Nieuw - Moving Average", color="green", linestyle="dashed")
 plt.xlabel("Time (s)")
 plt.ylabel("Speed (RPM)")
 plt.title("Raw vs. Filtered vs. Moving Average Speed Data")

@@ -49,7 +49,8 @@ def create_moving_average(values, window_size):
 
 #####################################################################################
 
-logfile = find_latest_logfile(0)
+# logfile = find_latest_logfile(0)
+logfile = "./logs/log_20250404_172213.txt"
 print(f"Now opening {logfile}")
 column_names, data = load_log_file(logfile)
 

@@ -1371,10 +1371,10 @@ void setup() {
     setupBluetooth(); delay(500); 
     connectBluetoothToPc(); delay(500);
     Serial.println("Waiting for user to give 'L' or 'R'");
-    waitForLRInput(); delay(500);
+    // waitForLRInput(); delay(500);
     setupEncoder(); delay(500); 
-    setupIMU(); delay(500);
-    setupMotorControl(); delay(500); 
+    // setupIMU(); delay(500);
+    // setupMotorControl(); delay(500); 
     Serial.println("Setup completed");
     sendTextToPcf("Setup completed after %d ms!", millis()); 
     delay(500);
@@ -1384,9 +1384,9 @@ void setup() {
     // move_to_90_degrees();
     // delay(1000);
 
-    timer.attach(&timerInterrupt, std::chrono::milliseconds(20));
+    // timer.attach(&timerInterrupt, std::chrono::milliseconds(20));
 
-    mahony.begin(50);
+    // mahony.begin(50);
 }
 
 // continuous loop
@@ -1412,42 +1412,47 @@ void loop() { //volgorde eventueel aanpassen
         return;
     }
 
-    if(emergency_stop){
-        while(1){
-            disableMotor();
-            sendTextToPc("EMERGENCY STOPPED");
-            delay(1000);
-        }
-    } 
+    // if(emergency_stop){
+    //     while(1){
+    //         disableMotor();
+    //         sendTextToPc("EMERGENCY STOPPED");
+    //         delay(1000);
+    //     }
+    // } 
 
 
     // Read the IMU data
-    IMU.readAcceleration(acc[0], acc[1], acc[2]);
-    IMU.readGyroscope(gyr[0], gyr[1], gyr[2]);
+    // IMU.readAcceleration(acc[0], acc[1], acc[2]);
+    // IMU.readGyroscope(gyr[0], gyr[1], gyr[2]);
 
-    // Transform the IMU data
-    transformAccelerometerData(acc[0], acc[1], acc[2]);
-    transformGyroscopeData(gyr[0], gyr[1], gyr[2]);
+    // // Transform the IMU data
+    // transformAccelerometerData(acc[0], acc[1], acc[2]);
+    // transformGyroscopeData(gyr[0], gyr[1], gyr[2]);
 
     float omega_x = 0;
-    float omega_y = 0;
-    float omega_z = 0;
+    // float omega_y = 0;
+    // float omega_z = 0;
 
-    mahony.updateIMU(gyr[0], gyr[1], gyr[2], acc[0], acc[1], acc[2], omega_x, omega_y, omega_z);
+    // mahony.updateIMU(gyr[0], gyr[1], gyr[2], acc[0], acc[1], acc[2], omega_x, omega_y, omega_z);
 
     // check if omega_x and gyr[0] are giving the same and correct values
     // sendDataToPcf("omega_x: %5.2f, gyr[0]: %5.2f", omega_x, gyr[0]);
 
-    if(timer_interrupt){
-        noInterrupts();
-        algorithm1(omega_x, elbow_angle);
+    // if(timer_interrupt){
+    //     noInterrupts();
+        // algorithm1(omega_x, elbow_angle);
+        // algorithm2(omega_x, elbow_angle);
         MPCWithPIDControl(omega_x);
-        timer_interrupt = false;
-        interrupts();
-    }
+        // Read encoder
+        // unsigned long encoder_timestamp = micros();
+        // encoder_value = encoder.angleR(ENCODER_RAW, true);
+        // elbow_angle = (encoder.angleR(ENCODER_DEGREES, true)-293.5)*-1;
+        // print encoder data
+        // sendTextToPcf("raw: %7.2f, degrees: %7.2f", encoder_value, elbow_angle);
+        // timer_interrupt = false;
+    //     interrupts();
+    // }
 
-
-    // algorithm2(omega_x, elbow_angle);
 
 
 }
