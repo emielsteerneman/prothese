@@ -37,6 +37,9 @@ mbed::Ticker timer; // Ticker object
 AMS_AS5048B encoder; // encoder object
 Mahony mahony; // Mahony object
 
+
+const float ENCODER_OFFSET = 66.51;
+
 /* variables timerInterrupt */
 volatile bool timer_interrupt = false;
 
@@ -760,7 +763,7 @@ void algorithm1(float& omega_x, float elbow_angle){ // moet gx niet een pointer 
     If it stays in this position for longer than one second, the arm angle will increase again.
     A cooldownperiod of 0.5 seconds has been build in, to prevent the triggering of the roll right after gx has been triggered. */
 
-    if (omega_x < -7 && !omega_x_triggered) { // Check if gx is triggered
+    if (omega_x < -5 && !omega_x_triggered) { // Check if gx is triggered
         omega_x_triggered = true;  // Set the flag to true
         omega_x_trigger_timestamp = millis(); 
     }
@@ -1220,7 +1223,7 @@ void MPCWithPIDControl(float omega_x){
         // Read encoder
         unsigned long encoder_timestamp = micros();
         encoder_value = encoder.angleR(ENCODER_RAW, true);
-        elbow_angle = (encoder.angleR(ENCODER_DEGREES, true)-293.5)*-1;
+        elbow_angle = (encoder.angleR(ENCODER_DEGREES, true)*-1)-ENCODER_OFFSET;
 
         float delta_encoder_value = encoder_value - previous_encoder_value;
         previous_encoder_value = encoder_value;
@@ -1435,13 +1438,10 @@ void loop() { //volgorde eventueel aanpassen
 
     mahony.updateIMU(gyr[0], gyr[1], gyr[2], acc[0], acc[1], acc[2], omega_x, omega_y, omega_z);
 
-    // check if omega_x and gyr[0] are giving the same and correct values
-    sendDataToPcf("omega_x: %5.2f, gyr[0]: %5.2f", omega_x, gyr[0]);
-
     if(timer_interrupt){
         noInterrupts();
-        // algorithm1(omega_x, elbow_angle);
-        algorithm2(omega_x, elbow_angle);
+        algorithm1(omega_x, elbow_angle);
+        // algorithm2(omega_x, elbow_angle);
         MPCWithPIDControl(omega_x);
         timer_interrupt = false;
         interrupts();
