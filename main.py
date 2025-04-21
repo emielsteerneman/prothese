@@ -37,7 +37,7 @@ async def writer_thread(filename):
             QUEUE_WRITE.task_done()
     # The file is automatically flushed when closed
 
-def notification_handler(sender, data):
+async def notification_handler(client, sender, data):
     ### Called by BLE when a notification arrives
 
     text = data.decode('utf-8', errors='ignore')
@@ -57,6 +57,12 @@ def notification_handler(sender, data):
     if len(QUEUE_TIME) == QUEUE_TIME.maxlen:
         time_diff = QUEUE_TIME[-1] - QUEUE_TIME[0]
         msg_rate = len(QUEUE_TIME) / time_diff
+
+    # send quit to arduino when message rate is lower than 30Hz
+    if msg_rate > 1. and msg_rate < 30.:
+        print(f"[Python ->  Arduino] Message rate too low: {msg_rate:.1f}Hz")
+        await client.write_gatt_char(PC_TO_ARDUINO_UUID, "QUIT".encode())
+        return
 
     print(f"\r[Arduino ->  Python] {msg_rate:5.1f}Hz | {text}        ", end="\n")
 
@@ -107,7 +113,7 @@ async def main():
         # Subscribe to notifications
         print(f"[main] Subscribing to characteristic {ARDUINO_TO_PC_UUID}...")
         # await asyncio.sleep(3)  # Give Arduino some time
-        await client.start_notify(ARDUINO_TO_PC_UUID, notification_handler)
+        await client.start_notify(ARDUINO_TO_PC_UUID, lambda s, d: notification_handler(client, s, d))
         print("[main] Subscribed to notifications")
 
         await client.write_gatt_char(PC_TO_ARDUINO_UUID, "START".encode())

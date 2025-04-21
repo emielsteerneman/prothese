@@ -1408,18 +1408,35 @@ void loop() { //volgorde eventueel aanpassen
     //     return;
     // }
 
-    if (pcHasWritten() && getPcInput() == "q") {
-        sendTextToPc("STOPPED BY USER");
-        disableMotor();
-        emergency_stop = true;
-        return;
+    if (pcHasWritten()){
+        if (getPcInput() == "q") {
+            sendTextToPc("STOPPED BY USER");
+            disableMotor();
+            emergency_stop = true;
+        } else if (getPcInput() == "m") {
+            sendTextToPc("MOVING TO 5 DEGREES");
+            move_to_5_degrees();
+            delay(1000);
+        } else if (getPcInput() == "QUIT") {
+            sendTextToPc("STOPPED BY PYTHON");
+            disableMotor();
+            emergency_stop = true;
+        }
     }
 
-    if (pcHasWritten() && getPcInput() == "m") {
-        sendTextToPc("MOVING TO 5 DEGREES");
-        move_to_5_degrees();
-        delay(1000);
-    }
+
+    // } && getPcInput() == "q") {
+    //     sendTextToPc("STOPPED BY USER");
+    //     disableMotor();
+    //     emergency_stop = true;
+    //     return;
+    // }
+
+    // if (pcHasWritten() && getPcInput() == "m") {
+    //     sendTextToPc("MOVING TO 5 DEGREES");
+    //     move_to_5_degrees();
+    //     delay(1000);
+    // }
 
     if(emergency_stop){
         while(1){
