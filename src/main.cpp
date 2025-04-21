@@ -137,7 +137,7 @@ void move_to_10_degrees(){
         // unsigned long encoder_timestamp = micros();
         // AS5048B
         encoder_value = encoder.angleR(ENCODER_RAW, true);
-        elbow_angle = (encoder.angleR(ENCODER_DEGREES, true)-293.5)*-1;
+        elbow_angle = (encoder.angleR(ENCODER_DEGREES, true)*-1)-ENCODER_OFFSET;
         
         // AS5600
         // encoder_value = encoder.readAngle(); // read encoder value
@@ -178,7 +178,7 @@ void move_to_5_degrees(){
         // unsigned long encoder_timestamp = micros();
         // AS5048B
         encoder_value = encoder.angleR(ENCODER_RAW, true);
-        elbow_angle = (encoder.angleR(ENCODER_DEGREES, true)-293.5)*-1;
+        elbow_angle = (encoder.angleR(ENCODER_DEGREES, true)*-1)-ENCODER_OFFSET;
         
         // AS5600
         // encoder_value = encoder.readAngle(); // read encoder value
@@ -204,7 +204,7 @@ void move_to_5_degrees(){
         // Stop when we reached our target angle (or at least close enough)
         if( fabs(error) < 1){
             disableMotor();
-            sendTextToPc("Reached 10 degrees");
+            sendTextToPc("Reached 5 degrees");
             return;
         }
 
@@ -219,7 +219,7 @@ void move_to_15_degrees(){
         // unsigned long encoder_timestamp = micros();
         // AS5048B
         encoder_value = encoder.angleR(ENCODER_RAW, true);
-        elbow_angle = (encoder.angleR(ENCODER_DEGREES, true)-293.5)*-1;
+        elbow_angle = (encoder.angleR(ENCODER_DEGREES, true)*-1)-ENCODER_OFFSET;
         
         // AS5600
         // encoder_value = encoder.readAngle(); // read encoder value
@@ -245,7 +245,7 @@ void move_to_15_degrees(){
         // Stop when we reached our target angle (or at least close enough)
         if( fabs(error) < 1){
             disableMotor();
-            sendTextToPc("Reached 10 degrees");
+            sendTextToPc("Reached 15 degrees");
             return;
         }
 
@@ -260,7 +260,7 @@ void move_to_25_degrees(){
         // unsigned long encoder_timestamp = micros();
         // AS5048B
         encoder_value = encoder.angleR(ENCODER_RAW, true);
-        elbow_angle = (encoder.angleR(ENCODER_DEGREES, true)-293.5)*-1;
+        elbow_angle = (encoder.angleR(ENCODER_DEGREES, true)*-1)-ENCODER_OFFSET;
         
         // AS5600
         // encoder_value = encoder.readAngle(); // read encoder value
@@ -286,7 +286,7 @@ void move_to_25_degrees(){
         // Stop when we reached our target angle (or at least close enough)
         if( fabs(error) < 1){
             disableMotor();
-            sendTextToPc("Reached 10 degrees");
+            sendTextToPc("Reached 25 degrees");
             return;
         }
 
@@ -301,7 +301,7 @@ void move_to_35_degrees(){
         // unsigned long encoder_timestamp = micros();
         // AS5048B
         encoder_value = encoder.angleR(ENCODER_RAW, true);
-        elbow_angle = (encoder.angleR(ENCODER_DEGREES, true)-293.5)*-1;
+        elbow_angle = (encoder.angleR(ENCODER_DEGREES, true)*-1)-ENCODER_OFFSET;
         
         // AS5600
         // encoder_value = encoder.readAngle(); // read encoder value
@@ -327,7 +327,7 @@ void move_to_35_degrees(){
         // Stop when we reached our target angle (or at least close enough)
         if( fabs(error) < 1){
             disableMotor();
-            sendTextToPc("Reached 10 degrees");
+            sendTextToPc("Reached 35 degrees");
             return;
         }
 
@@ -342,7 +342,7 @@ void move_to_45_degrees(){
         // unsigned long encoder_timestamp = micros();
         // AS5048B
         encoder_value = encoder.angleR(ENCODER_RAW, true);
-        elbow_angle = (encoder.angleR(ENCODER_DEGREES, true)-293.5)*-1;
+        elbow_angle = (encoder.angleR(ENCODER_DEGREES, true)*-1)-ENCODER_OFFSET;
         
         // AS5600
         // encoder_value = encoder.readAngle(); // read encoder value
@@ -368,7 +368,7 @@ void move_to_45_degrees(){
         // Stop when we reached our target angle (or at least close enough)
         if( fabs(error) < 1){
             disableMotor();
-            sendTextToPc("Reached 90 degrees");
+            sendTextToPc("Reached 45 degrees");
             return;
         }
 
@@ -383,7 +383,7 @@ void move_to_55_degrees(){
         // unsigned long encoder_timestamp = micros();
         // AS5048B
         encoder_value = encoder.angleR(ENCODER_RAW, true);
-        elbow_angle = (encoder.angleR(ENCODER_DEGREES, true)-293.5)*-1;
+        elbow_angle = (encoder.angleR(ENCODER_DEGREES, true)*-1)-ENCODER_OFFSET;
         
         // AS5600
         // encoder_value = encoder.readAngle(); // read encoder value
@@ -409,7 +409,7 @@ void move_to_55_degrees(){
         // Stop when we reached our target angle (or at least close enough)
         if( fabs(error) < 1){
             disableMotor();
-            sendTextToPc("Reached 90 degrees");
+            sendTextToPc("Reached 55 degrees");
             return;
         }
 
@@ -424,7 +424,7 @@ void move_to_90_degrees(){
         // unsigned long encoder_timestamp = micros();
         // AS5048B
         encoder_value = encoder.angleR(ENCODER_RAW, true);
-        elbow_angle = (encoder.angleR(ENCODER_DEGREES, true)-293.5)*-1;
+        elbow_angle = (encoder.angleR(ENCODER_DEGREES, true)*-1)-ENCODER_OFFSET;
         
         // AS5600
         // encoder_value = encoder.readAngle(); // read encoder value
@@ -626,7 +626,7 @@ void PIDControl(){
         // elbow_angle = calculateElbowAngle(encoder_value);
 
         encoder_value = encoder.angleR(ENCODER_RAW, true);
-        elbow_angle = (encoder.angleR(ENCODER_DEGREES, true)-293.5)*-1;
+        elbow_angle = (encoder.angleR(ENCODER_DEGREES, true)*-1)-ENCODER_OFFSET;
 
         float delta_encoder_value = encoder_value - previous_encoder_value;
         previous_encoder_value = encoder_value;
@@ -981,7 +981,7 @@ void move_5_to_90_to_5(){
         // Read encoder
         unsigned long encoder_timestamp = micros();
         encoder_value = encoder.angleR(ENCODER_RAW, true);
-        elbow_angle = (encoder.angleR(ENCODER_DEGREES, true)-293.5)*-1;
+        elbow_angle = (encoder.angleR(ENCODER_DEGREES, true)*-1)-ENCODER_OFFSET;
 
         float delta_encoder_value = encoder_value - previous_encoder_value;
         previous_encoder_value = encoder_value;
@@ -1101,7 +1101,7 @@ void poging2ModelPredictiveControl(){
         // Read encoder
         unsigned long encoder_timestamp = micros();
         encoder_value = encoder.angleR(ENCODER_RAW, true);
-        elbow_angle = (encoder.angleR(ENCODER_DEGREES, true)-293.5)*-1;
+        elbow_angle = (encoder.angleR(ENCODER_DEGREES, true)*-1)-ENCODER_OFFSET;
 
         unsigned long delta_encoder_value = encoder_value - previous_encoder_value;
         previous_encoder_value = encoder_value;
@@ -1413,6 +1413,12 @@ void loop() { //volgorde eventueel aanpassen
         disableMotor();
         emergency_stop = true;
         return;
+    }
+
+    if (pcHasWritten() && getPcInput() == "m") {
+        sendTextToPc("MOVING TO 5 DEGREES");
+        move_to_5_degrees();
+        delay(1000);
     }
 
     if(emergency_stop){
