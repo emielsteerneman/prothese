@@ -12,7 +12,7 @@ ARDUINO_TO_PC_UUID  = "12345678-1234-5678-1234-56789abcdef1"
 PC_TO_ARDUINO_UUID  = "12345678-1234-5678-1234-56789abcdef2"
 
 # Create buffers, debugging purposes
-QUEUE_TIME = collections.deque(maxlen=200)
+QUEUE_TIME = collections.deque(maxlen=50)
 
 # Create collection
 QUEUE_WRITE = asyncio.Queue()
@@ -59,7 +59,7 @@ async def notification_handler(client, sender, data):
         msg_rate = len(QUEUE_TIME) / time_diff
 
     # send quit to arduino when message rate is lower than 30Hz
-    if msg_rate > 1. and msg_rate < 30.:
+    if msg_rate > 1. and msg_rate < 20.:
         print(f"[Python ->  Arduino] Message rate too low: {msg_rate:.1f}Hz")
         await client.write_gatt_char(PC_TO_ARDUINO_UUID, "QUIT".encode())
         return
@@ -113,7 +113,9 @@ async def main():
         # Subscribe to notifications
         print(f"[main] Subscribing to characteristic {ARDUINO_TO_PC_UUID}...")
         # await asyncio.sleep(3)  # Give Arduino some time
-        await client.start_notify(ARDUINO_TO_PC_UUID, lambda s, d: notification_handler(client, s, d))
+        # await client.start_notify(ARDUINO_TO_PC_UUID, lambda s, d: notification_handler(client, s, d))
+        await client.start_notify(ARDUINO_TO_PC_UUID, lambda s, d: asyncio.create_task(notification_handler(client, s, d)))
+
         print("[main] Subscribed to notifications")
 
         await client.write_gatt_char(PC_TO_ARDUINO_UUID, "START".encode())

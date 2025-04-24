@@ -91,8 +91,8 @@ bool omega_x_triggered = false; // Stores the last time gx was triggered
 int motor_direction = 0; // 0 = flex, 1 = extend
 
 /* variables algorithm2 */
-const float OMEGA_X_EXTEND_THRESHOLD = -7;
-const float OMEGA_X_FLEX_THRESHOLD = 7;
+const float OMEGA_X_EXTEND_THRESHOLD = -100; //-7
+const float OMEGA_X_FLEX_THRESHOLD = 100; //7
 bool extend_motor_running = false;
 bool flex_motor_running = false;
 bool extend_cooldown_passed = false;
@@ -173,13 +173,42 @@ void move_to_10_degrees(){
     }
 }
 
-void move_to_5_degrees(){
+void move_to_5_degrees(float omega_x){
     while(true){
         // unsigned long encoder_timestamp = micros();
         // AS5048B
+
+        unsigned long PID_timestamp = micros();
+                    
+        // Read encoder
+        unsigned long encoder_timestamp = micros();
         encoder_value = encoder.angleR(ENCODER_RAW, true);
         elbow_angle = (encoder.angleR(ENCODER_DEGREES, true)*-1)-ENCODER_OFFSET;
-        
+        if(elbow_angle < 0){
+            elbow_angle += 360;
+        }
+        unsigned long delta_PID_timestamp = PID_timestamp - previous_PID_timestamp;
+        previous_PID_timestamp = PID_timestamp;
+
+
+        // **Bereken snelheid in graden per seconde**
+        float delta_elbow_angle = elbow_angle - previous_elbow_angle;  // Hoekverandering          
+        float delta_encoder_timestamp = (encoder_timestamp - previous_encoder_timestamp) / 1000000.0; // Convert to seconds
+        float raw_velocity = delta_elbow_angle / delta_encoder_timestamp; // Compute raw velocity
+
+        previous_elbow_angle = elbow_angle; // update arm angle
+        previous_encoder_timestamp = encoder_timestamp; // update time
+
+        // Store value in moving average buffer
+        velocity_buffer[velocity_index] = raw_velocity;
+        velocity_index = (velocity_index + 1) % FILTER_SIZE; // Circular buffer
+
+        // Compute moving average
+        float velocity_sum = 0;
+        for (int i = 0; i < FILTER_SIZE; i++) {
+            velocity_sum += velocity_buffer[i];
+        }
+        average_velocity = velocity_sum / FILTER_SIZE;  // Smoothed velocity
         // AS5600
         // encoder_value = encoder.readAngle(); // read encoder value
         // elbow_angle = calculateElbowAngle(encoder_value);
@@ -210,7 +239,31 @@ void move_to_5_degrees(){
 
         turnStepsPerSecond(31400, error < 0); // True = extend
 
-        delay(20);
+        sendDataToPcf("N: %4d, t: %6lu, dt: %lu, ENC_DEG: %5.2f, REF: %5.2f, VEL_RAW: %5.2f, VEL_AVG: %5.2f, I: %5.2f, D: %5.2f, VEL_OUT: %5.2f, MS_MPC: %5.2f, ax: %5.2f, ay: %5.2f, az: %5.2f, gx: %5.2f, gy: %5.2f, gz: %5.2f, OX: %5.2f",
+            log_counter,
+            PID_timestamp,
+            delta_PID_timestamp,
+            elbow_angle,
+            input_velocity,
+            raw_velocity,
+            average_velocity,
+            // error_velocity,
+            PID_integral,
+            PID_derivative,
+            output_velocity,
+            motor_speed_MPC,
+            // motor_speed,
+            acc[0],
+            acc[1],
+            acc[2],
+            gyr[0],
+            gyr[1],
+            gyr[2],
+            omega_x
+        );
+        log_counter++;
+
+        // delay(20);
     }
 }
 
@@ -754,8 +807,7 @@ void PIDControl(){
     }
 }
 
-
-void algorithm1(float& omega_x, float elbow_angle){ // moet gx niet een pointer worden?
+void algorithm1(float& omega_x, float elbow_angle, float gx){ // moet gx niet een pointer worden?
     /* Algorithm 1
     When the arm is brought to roll > 20 degrees, the elbow angle will increase until the users removes it from this position.
     The arm can then move freely until gx is triggered or until it is back in this > 20 degrees position. 
@@ -763,7 +815,7 @@ void algorithm1(float& omega_x, float elbow_angle){ // moet gx niet een pointer 
     If it stays in this position for longer than one second, the arm angle will increase again.
     A cooldownperiod of 0.5 seconds has been build in, to prevent the triggering of the roll right after gx has been triggered. */
 
-    if (omega_x < -5 && !omega_x_triggered) { // Check if gx is triggered
+    if (gx < -100 && !omega_x_triggered) { // Check if gx is triggered
         omega_x_triggered = true;  // Set the flag to true
         omega_x_trigger_timestamp = millis(); 
     }
@@ -810,7 +862,7 @@ void algorithm1(float& omega_x, float elbow_angle){ // moet gx niet een pointer 
     
 }
 
-void algorithm2(float omega_x, float elbow_angle){
+void algorithm2(float omega_x, float elbow_angle, float gx){
     /* Algoritme 2
     Het idee is om de bovenarm alvast in de gewenste positie te brengen vooor de reiktaak en dat de onderarm daarna ingesteld kan worden.
     Dit zou bijvoorbeeld kunnen door een snelle op en neer bewegen van de bovenarm. eventuel een neer-op bewegen voor de andere kant op.
@@ -818,11 +870,11 @@ void algorithm2(float omega_x, float elbow_angle){
     */
 
     // EXTEND MOVEMENT
-    if ((omega_x < OMEGA_X_EXTEND_THRESHOLD) && !extend_motor_running) {    
+    if ((gx < OMEGA_X_EXTEND_THRESHOLD) && !extend_motor_running) {    
         // Ensure extra cooldown has passed before starting again
         if (millis() - extend_stop_timestamp > EXTRA_COOLDOWN_PERIOD) {
             // motor_direction = 0;
-            input_velocity = fabs(reference_velocity);
+            input_velocity = -fabs(reference_velocity);
             // turnStepsPerSecond(motor_speed, motor_direction);
             omega_x_extend_trigger_timestamp = millis();
             extend_motor_running = true;  
@@ -835,7 +887,7 @@ void algorithm2(float omega_x, float elbow_angle){
     }
 
     // Stop motor only if cooldown has passed AND gx is triggered again
-    if (extend_cooldown_passed && omega_x < OMEGA_X_EXTEND_THRESHOLD) {
+    if (extend_cooldown_passed && gx < OMEGA_X_EXTEND_THRESHOLD) {
         // disableMotor();
         input_velocity = 0;
         extend_motor_running = false;
@@ -844,11 +896,11 @@ void algorithm2(float omega_x, float elbow_angle){
     }
 
     // FLEX MOVEMENT
-    if (omega_x > OMEGA_X_FLEX_THRESHOLD && !flex_motor_running) {  
+    if (gx > OMEGA_X_FLEX_THRESHOLD && !flex_motor_running) {  
         // Ensure extra cooldown has passed before starting again
         if (millis() - flex_stop_timestamp > EXTRA_COOLDOWN_PERIOD) {
             // motor_direction = 1;
-            input_velocity = -fabs(reference_velocity);
+            input_velocity = fabs(reference_velocity);
             // turnStepsPerSecond(motor_speed, motor_direction);
             omega_x_flex_trigger_timestamp = millis();
             flex_motor_running = true;  
@@ -862,7 +914,7 @@ void algorithm2(float omega_x, float elbow_angle){
     }
 
     // Stop motor only if cooldown has passed AND gx is triggered again
-    if (flex_cooldown_passed && omega_x > OMEGA_X_FLEX_THRESHOLD) {
+    if (flex_cooldown_passed && gx > OMEGA_X_FLEX_THRESHOLD) {
         // disableMotor();
         input_velocity = 0;
         flex_motor_running = false;
@@ -1342,31 +1394,53 @@ void MPCWithPIDControl(float omega_x){
 
         // Print data
         // sendDataToPcf("N: %4d, t: %6lu, dt: %lu, REF: %5.2f, ENC_RAW: %5d, dENC_RAW: %5.2f, ENC_DEG: %5.2f, VEL_RAW: %5.2f, VEL_AVG: %5.2f, VEL_ERR: %5.2f, I: %5.2f, D: %5.2f, Kp: %5.2f, Ki: %5.2f, Kd: %5.2f, VEL_OUT: %5.2f, VEL_MPC: %5.2f, MS: %5.2f",
-        sendDataToPcf("N: %4d, t: %6lu, dt: %lu, REF: %5.2f, ENC_RAW: %5d, dENC_RAW: %5.2f, ENC_DEG: %5.2f, VEL_RAW: %5.2f, VEL_AVG: %5.2f, VEL_ERR: %5.2f, Kp: %5.2f, Ki: %5.2f, OX: %5.2f, VEL_OUT: %5.2f, VEL_MPC: %5.2f, MS: %5.2f",
+        // sendDataToPcf("N: %4d, t: %6lu, dt: %lu, REF: %5.2f, ENC_RAW: %5d, dENC_RAW: %5.2f, ENC_DEG: %5.2f, VEL_RAW: %5.2f, VEL_AVG: %5.2f, VEL_ERR: %5.2f, Kp: %5.2f, Ki: %5.2f, OX: %5.2f, VEL_OUT: %5.2f, VEL_MPC: %5.2f, MS: %5.2f",
 
+        //     log_counter,
+        //     PID_timestamp,
+        //     delta_PID_timestamp,
+        //     input_velocity,
+        //     encoder_value,
+        //     delta_encoder_value,
+        //     elbow_angle,
+        //     raw_velocity,
+        //     average_velocity,
+        //     error_velocity,
+        //     // PID_integral,
+        //     // PID_derivative,
+        //     K_p,
+        //     K_i,
+        //     // K_d,
+        //     omega_x,
+        //     output_velocity,
+        //     motor_speed_MPC,
+        //     motor_speed
+        sendDataToPcf("N: %4d, t: %6lu, dt: %lu, ENC_DEG: %5.2f, REF: %5.2f, VEL_RAW: %5.2f, VEL_AVG: %5.2f, I: %5.2f, D: %5.2f, VEL_OUT: %5.2f, MS_MPC: %5.2f, ax: %5.2f, ay: %5.2f, az: %5.2f, gx: %5.2f, gy: %5.2f, gz: %5.2f, OX: %5.2f",
             log_counter,
             PID_timestamp,
             delta_PID_timestamp,
-            input_velocity,
-            encoder_value,
-            delta_encoder_value,
             elbow_angle,
+            input_velocity,
             raw_velocity,
             average_velocity,
-            error_velocity,
-            // PID_integral,
-            // PID_derivative,
-            K_p,
-            K_i,
-            // K_d,
-            omega_x,
+            // error_velocity,
+            PID_integral,
+            PID_derivative,
             output_velocity,
             motor_speed_MPC,
-            motor_speed
+            // motor_speed,
+            acc[0],
+            acc[1],
+            acc[2],
+            gyr[0],
+            gyr[1],
+            gyr[2],
+            omega_x
         );
         log_counter++;
     }
 }
+
 // setup, runs once
 void setup() {
     Serial.begin(115200);
@@ -1408,22 +1482,6 @@ void loop() { //volgorde eventueel aanpassen
     //     return;
     // }
 
-    if (pcHasWritten()){
-        if (getPcInput() == "q") {
-            sendTextToPc("STOPPED BY USER");
-            disableMotor();
-            emergency_stop = true;
-        } else if (getPcInput() == "m") {
-            sendTextToPc("MOVING TO 5 DEGREES");
-            move_to_5_degrees();
-            delay(1000);
-        } else if (getPcInput() == "QUIT") {
-            sendTextToPc("STOPPED BY PYTHON");
-            disableMotor();
-            emergency_stop = true;
-        }
-    }
-
 
     // } && getPcInput() == "q") {
     //     sendTextToPc("STOPPED BY USER");
@@ -1463,13 +1521,29 @@ void loop() { //volgorde eventueel aanpassen
 
     if(timer_interrupt){
         noInterrupts();
-        algorithm1(omega_x, elbow_angle);
-        // algorithm2(omega_x, elbow_angle);
+        // algorithm1(omega_x, elbow_angle, gyr[0]);
+        algorithm2(omega_x, elbow_angle, gyr[0]);
         MPCWithPIDControl(omega_x);
         timer_interrupt = false;
         interrupts();
     }
 
-
+    if (pcHasWritten()){
+        if (getPcInput() == "q") {
+            sendTextToPc("STOPPED BY USER");
+            disableMotor();
+            emergency_stop = true;
+        } else if (getPcInput() == "m") {
+            sendTextToPc("MOVING TO 5 DEGREES");
+            // noInterrupts();
+            move_to_5_degrees(omega_x);
+            // interrupts();
+            // delay(1000);
+        } else if (getPcInput() == "QUIT") {
+            sendTextToPc("STOPPED BY PYTHON");
+            disableMotor();
+            emergency_stop = true;
+        }
+    }
 
 }
