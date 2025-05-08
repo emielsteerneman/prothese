@@ -1521,8 +1521,8 @@ void loop() { //volgorde eventueel aanpassen
 
     if(timer_interrupt){
         noInterrupts();
-        // algorithm1(omega_x, elbow_angle, gyr[0]);
-        algorithm2(omega_x, elbow_angle, gyr[0]);
+        algorithm1(omega_x, elbow_angle, gyr[0]);
+        // algorithm2(omega_x, elbow_angle, gyr[0]);
         MPCWithPIDControl(omega_x);
         timer_interrupt = false;
         interrupts();
