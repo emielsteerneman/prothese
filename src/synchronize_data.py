@@ -5,15 +5,17 @@ import matplotlib.pyplot as plt
 import re
 import pandas as pd
 
-name = "MartZoet"
+name = "WouterVisser"
 algorithm = "Alg2"
 
 qualisys_peaks_selected_0 = True
 
 arduino_peaks_selected_0 = True
-arduino_peaks_selected_1 = True 
-arduino_peaks_selected_2 = True 
-arduino_peaks_selected_3 = True
+# arduino_peaks_selected_1 = True 
+# arduino_peaks_selected_2 = True
+# arduino_peaks_selected_3 = True
+# arduino_peaks_selected_4 = True
+# arduino_peaks_selected_5 = True
 
 ### === Qualisys Settings === ###
 # file
@@ -39,13 +41,16 @@ qualisys_peaks_selected = [qualisys_peaks_selected_0]
 # arduino_file_3 = "D:\\BMT\\Master\\Thesis\\Arduino\\prothese\\logs\\log_20250423_161005.txt"
 
 arduino_file_1 = f"D:\\BMT\\Master\\Thesis\\Arduino\\prothese\\IMU_data\\{name}\\{algorithm}\\{algorithm}_1.txt"
-arduino_file_2 = f"D:\\BMT\\Master\\Thesis\\Arduino\\prothese\\IMU_data\\{name}\\{algorithm}\\{algorithm}_2.txt"
-arduino_file_3 = f"D:\\BMT\\Master\\Thesis\\Arduino\\prothese\\IMU_data\\{name}\\{algorithm}\\{algorithm}_3.txt"
-arduino_file_4 = f"D:\\BMT\\Master\\Thesis\\Arduino\\prothese\\IMU_data\\{name}\\{algorithm}\\{algorithm}_4.txt"
+# arduino_file_2 = f"D:\\BMT\\Master\\Thesis\\Arduino\\prothese\\IMU_data\\{name}\\{algorithm}\\{algorithm}_2.txt"
+# arduino_file_3 = f"D:\\BMT\\Master\\Thesis\\Arduino\\prothese\\IMU_data\\{name}\\{algorithm}\\{algorithm}_3.txt"
+# arduino_file_4 = f"D:\\BMT\\Master\\Thesis\\Arduino\\prothese\\IMU_data\\{name}\\{algorithm}\\{algorithm}_4.txt"
+# arduino_file_5 = f"D:\\BMT\\Master\\Thesis\\Arduino\\prothese\\IMU_data\\{name}\\{algorithm}\\{algorithm}_5.txt"
+# arduino_file_6 = f"D:\\BMT\\Master\\Thesis\\Arduino\\prothese\\IMU_data\\{name}\\{algorithm}\\{algorithm}_6.txt"
 
 
-arduino_file = [arduino_file_1, arduino_file_2, arduino_file_3, arduino_file_4]
-arduino_peaks_selected = [arduino_peaks_selected_0, arduino_peaks_selected_1, arduino_peaks_selected_2, arduino_peaks_selected_3]
+
+arduino_file = [arduino_file_1]#, arduino_file_2, arduino_file_3, arduino_file_4, arduino_file_5]#, arduino_file_6]
+arduino_peaks_selected = [arduino_peaks_selected_0]#, arduino_peaks_selected_1, arduino_peaks_selected_2, arduino_peaks_selected_3, arduino_peaks_selected_4]#, arduino_peaks_selected_5]
 data = [None] * len(arduino_file)
 
 

@@ -183,7 +183,7 @@ import matplotlib.pyplot as plt
 
 
 
-namen = ["AnnaZoet", "LiekeZwier", "MartZoet"]
+namen = ["AnnaZoet", "ChrisKrommendijk", "LiekeZwier", "MartZoet", "ThijsBink", "BasvanderKaaden", "CorentinMonat", "TomMeulenkamp", "DylanBruggeman", "WouterVisser"]
 combined_Alg1 = []
 combined_Alg2 = []
 

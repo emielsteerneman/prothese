@@ -32,7 +32,7 @@ Bestanden voor data analyse:
 - plot_sternum_angle.py --> bepaalt de hoek van het sternum t.o.v. het yz-vlak en de rotatie om de y-as
 - plot_humerus_angle.py --> bepaalt de hoek van het humerus t.o.v. alle anatomische vlakken en de rotatie om alle assen
 - plot_ulnar_angle.py --> bepaalt de hoek van het ulnar t.o.v. alle anatomische vlakken en de rotatie om alle assen
-- compare_angle_and_duration.py moet nog fatsoenlijk ontwikkeld worden.
+- compare_angle_and_duration.py moet nog fatsoenlijk ontwikkeld worden. --> is ontwikkeld in rigid_body_rotation.py
 
 
 
@@ -44,8 +44,9 @@ Per persoon (10)
 - Verloop van reiktaakduur per target (3*10) per algoritme (2) --> 6 plots
 
 - gemiddelde compensatie met bovenlichaam per target voor Nullmeting, yz vlak en y-as --> 6 waardes
-- verloop van compensatie bovenlichaam
-- 
+- (gemiddelde?) verloop van compensatie bovenlichaam per target voor nullmeting --> 3 plots met 2 subplots (yz-vlak en y-as)
+
+
 
 Per iedereen
 

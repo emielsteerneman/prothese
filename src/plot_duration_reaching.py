@@ -25,9 +25,9 @@ import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
 
-name = "MartZoet"
+name = "WouterVisser"
 algorithm = "Alg2"
-seconds_to_check = 12.0  # seconden na start om te controleren op raakmoment
+seconds_to_check = 15.0  # seconden na start om te controleren op raakmoment
 file_made = True
 
 ## qualisys file
