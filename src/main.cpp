@@ -76,7 +76,7 @@ unsigned long roll_trigger_timestamp = 0; // Stores the last time roll was trigg
 const unsigned long ROLL_COOLDOWN_PERIOD = 1000; // Cooldown period in milliseconds
 bool omega_x_triggered = false; // Stores the last time gx was triggered
 
-/* variables algorithm2 */
+// variables algorithm2
 const float OMEGA_X_EXTEND_THRESHOLD = -100;
 const float OMEGA_X_FLEX_THRESHOLD = 100;
 bool extend_motor_running = false;
@@ -89,7 +89,7 @@ unsigned long omega_x_flex_trigger_timestamp = 0;
 unsigned long extend_stop_timestamp = 0;
 unsigned long flex_stop_timestamp = 0;
 
-/* varibales waitForLRInput*/
+// varibales waitForLRInput
 bool is_left_prosthetic = false;
 
 // variables loop
@@ -99,21 +99,56 @@ float acc[3] = {0, 0, 0};
 float gyr[3] = {0, 0, 0};
 
 // variables ModelPredictiveControl
-const float elbow_radius = 42.426; // mm
-const float linear_velocity = 0.0003125; // mm/s --> lead/(microsteps per revolution) = 2/(2*16*200) = 0.0003125 mm/step
+const float ELBOW_RADIUS = 42.426; // mm
+const float LINEAR_VELOCITY = 0.0003125; // mm/s --> lead/(microsteps per revolution) = 2/(2*16*200) = 0.0003125 mm/step
 float motor_speed_MPC = 0.0; 
-const float d = 30.0; // afstand van M naar A
-const float h = 60.0; // afstand van A naar B
+const float DISTANCE_AXIS_PIN = 30.0; // mm
+const float DISTANCE_AXIS_MOTOR = 60.0; // mm
 
-unsigned long last_speed_increase_time = 0; 
+// Helper functions
 
+float convertToRadians(float value_in_degrees){
+    return value_in_degrees * (M_PI / 180.0);
+}
 
+void timerInterrupt(){
+    if (BLUETOOTH) {
+        timer_interrupt = true;
+    }
+}
 
+void transformAccelerometerData(float& ax, float& ay, float& az){
+    ax -= ax_offset + 1; // include gravitational constant
+    ay -= ay_offset;
+    az -= az_offset;
+
+    float ax_transformed = transformation_matrix[0][0] * ax + transformation_matrix[0][1] * ay + transformation_matrix[0][2] * az;
+    float ay_transformed = transformation_matrix[1][0] * ax + transformation_matrix[1][1] * ay + transformation_matrix[1][2] * az;
+    float az_transformed = transformation_matrix[2][0] * ax + transformation_matrix[2][1] * ay + transformation_matrix[2][2] * az;
+
+    ax = ax_transformed;
+    ay = ay_transformed;
+    az = az_transformed;
+}
+
+void transformGyroscopeData(float& gx, float& gy, float& gz){
+    gx -= gx_offset; // / GYRO_SENSITIVITY;
+    gy -= gy_offset; // / GYRO_SENSITIVITY;
+    gz -= gz_offset; // / GYRO_SENSITIVITY;
+
+    float gx_transformed = transformation_matrix[0][0] * gx + transformation_matrix[0][1] * gy + transformation_matrix[0][2] * gz;
+    float gy_transformed = transformation_matrix[1][0] * gx + transformation_matrix[1][1] * gy + transformation_matrix[1][2] * gz;
+    float gz_transformed = transformation_matrix[2][0] * gx + transformation_matrix[2][1] * gy + transformation_matrix[2][2] * gz;
+
+    gx = gx_transformed;
+    gy = gy_transformed;
+    gz = gz_transformed;
+}
+
+// Main functions
 
 void move_to_5_degrees(float omega_x){
     while(true){
-
-
         unsigned long PID_timestamp = micros();
                     
         // Read encoder
@@ -126,27 +161,26 @@ void move_to_5_degrees(float omega_x){
         unsigned long delta_PID_timestamp = PID_timestamp - previous_PID_timestamp;
         previous_PID_timestamp = PID_timestamp;
 
-
-        // **Bereken snelheid in graden per seconde**
-        float delta_elbow_angle = elbow_angle - previous_elbow_angle;  // Hoekverandering          
+        // Calculate velocity in degrees per second
+        float delta_elbow_angle = elbow_angle - previous_elbow_angle;
         float delta_encoder_timestamp = (encoder_timestamp - previous_encoder_timestamp) / 1000000.0; // Convert to seconds
-        float raw_velocity = delta_elbow_angle / delta_encoder_timestamp; // Compute raw velocity
+        float raw_velocity = delta_elbow_angle / delta_encoder_timestamp;
 
-        previous_elbow_angle = elbow_angle; // update arm angle
-        previous_encoder_timestamp = encoder_timestamp; // update time
+        previous_elbow_angle = elbow_angle;
+        previous_encoder_timestamp = encoder_timestamp;
 
-        // Store value in moving average buffer
+        // Store value in circular moving average buffer
         velocity_buffer[velocity_index] = raw_velocity;
-        velocity_index = (velocity_index + 1) % FILTER_SIZE; // Circular buffer
+        velocity_index = (velocity_index + 1) % FILTER_SIZE;
 
         // Compute moving average
         float velocity_sum = 0;
         for (int i = 0; i < FILTER_SIZE; i++) {
             velocity_sum += velocity_buffer[i];
         }
-        average_velocity = velocity_sum / FILTER_SIZE;  // Smoothed velocity
+        average_velocity = velocity_sum / FILTER_SIZE;
 
-        /* EMERGENCY BREAK */ // Deze verplaatsen zodat angular velocity meteen onder de enocder meting komt
+        /* EMERGENCY BREAK */
         if (elbow_angle < 3 || 92 < elbow_angle) {
             unsafe_encoder_measurements++;
             if(unsafe_encoder_measurements > 3){
@@ -180,12 +214,10 @@ void move_to_5_degrees(float omega_x){
             input_velocity,
             raw_velocity,
             average_velocity,
-            // error_velocity,
             PID_integral,
             PID_derivative,
             output_velocity,
             motor_speed_MPC,
-            // motor_speed,
             acc[0],
             acc[1],
             acc[2],
@@ -197,44 +229,6 @@ void move_to_5_degrees(float omega_x){
         log_counter++;
 
     }
-}
-
-float convertToRadians(float value_in_degrees){
-    return value_in_degrees * (M_PI / 180.0);
-}
-
-void timerInterrupt(){
-    if (BLUETOOTH) {
-        timer_interrupt = true;
-    }
-}
-
-void transformAccelerometerData(float& ax, float& ay, float& az){
-    ax -= ax_offset + 1; // include gravitational constant
-    ay -= ay_offset;
-    az -= az_offset;
-
-    float axTransformed = transformation_matrix[0][0] * ax + transformation_matrix[0][1] * ay + transformation_matrix[0][2] * az;
-    float ayTransformed = transformation_matrix[1][0] * ax + transformation_matrix[1][1] * ay + transformation_matrix[1][2] * az;
-    float azTransformed = transformation_matrix[2][0] * ax + transformation_matrix[2][1] * ay + transformation_matrix[2][2] * az;
-
-    ax = axTransformed;
-    ay = ayTransformed;
-    az = azTransformed;
-}
-
-void transformGyroscopeData(float& gx, float& gy, float& gz){
-    gx -= gx_offset; // / GYRO_SENSITIVITY;
-    gy -= gy_offset; // / GYRO_SENSITIVITY;
-    gz -= gz_offset; // / GYRO_SENSITIVITY;
-
-    float gxTransformed = transformation_matrix[0][0] * gx + transformation_matrix[0][1] * gy + transformation_matrix[0][2] * gz;
-    float gyTransformed = transformation_matrix[1][0] * gx + transformation_matrix[1][1] * gy + transformation_matrix[1][2] * gz;
-    float gzTransformed = transformation_matrix[2][0] * gx + transformation_matrix[2][1] * gy + transformation_matrix[2][2] * gz;
-
-    gx = gxTransformed;
-    gy = gyTransformed;
-    gz = gzTransformed;
 }
 
 void algorithm1(float& omega_x, float elbow_angle, float gx){ // moet gx niet een pointer worden?
@@ -284,10 +278,9 @@ void algorithm1(float& omega_x, float elbow_angle, float gx){ // moet gx niet ee
 }
 
 void algorithm2(float omega_x, float elbow_angle, float gx){
-    /* Algoritme 2
-    Het idee is om de bovenarm alvast in de gewenste positie te brengen vooor de reiktaak en dat de onderarm daarna ingesteld kan worden.
-    Dit zou bijvoorbeeld kunnen door een snelle op en neer bewegen van de bovenarm. eventuel een neer-op bewegen voor de andere kant op.
-    er moet dan nog uitgezocht worden hoe de beweging gestop kan worden
+    /* Algorithm 2
+    The idea is to first bring the upper arm into the desired position for the reaching task, after which the forearm can be adjusted.
+    This could, for example, be done by a quick up-and-down movement of the upper arm—possibly a down-up movement for the opposite direction.
     */
 
     // EXTEND MOVEMENT
@@ -375,11 +368,6 @@ void setupIMU() {
 void setupEncoder() {
     Serial.println("Beginning Encoder!");
     sendTextToPc("Beginning Encoder!");
-    // if (!encoder.begin()) {
-    //     Serial.println("Failed to initialize Encoder!");
-    //     sendTextToPc("Failed to initialize Encoder!");
-    //     while (1);
-    // }
     encoder.begin();
     Serial.println("Encoder initialized!");
     sendTextToPc("Encoder initialized!");
@@ -446,14 +434,12 @@ void MPCWithPIDControl(float omega_x){
         encoder_value = encoder.angleR(ENCODER_RAW, true);
         elbow_angle = (encoder.angleR(ENCODER_DEGREES, true)*-1)-ENCODER_OFFSET;
 
-        float delta_encoder_value = encoder_value - previous_encoder_value;
         previous_encoder_value = encoder_value;
         if(elbow_angle < 0){
             elbow_angle += 360;
         }
 
-
-        /* EMERGENCY BREAK */ // Deze verplaatsen zodat angular velocity meteen onder de enocder meting komt
+        /* EMERGENCY BREAK */
         if (elbow_angle < 3 || 93 < elbow_angle) {
             unsafe_encoder_measurements++;
             if(unsafe_encoder_measurements > 3){
@@ -477,25 +463,23 @@ void MPCWithPIDControl(float omega_x){
         unsigned long delta_PID_timestamp = PID_timestamp - previous_PID_timestamp;
         previous_PID_timestamp = PID_timestamp;
 
-
-        // **Bereken snelheid in graden per seconde**
-        float delta_elbow_angle = elbow_angle - previous_elbow_angle;  // Hoekverandering          
+        // Calculate velocity in degrees per second
+        float delta_elbow_angle = elbow_angle - previous_elbow_angle;
         float delta_encoder_timestamp = (encoder_timestamp - previous_encoder_timestamp) / 1000000.0; // Convert to seconds
-        float raw_velocity = delta_elbow_angle / delta_encoder_timestamp; // Compute raw velocity
+        float raw_velocity = delta_elbow_angle / delta_encoder_timestamp;
 
         previous_elbow_angle = elbow_angle; // update arm angle
         previous_encoder_timestamp = encoder_timestamp; // update time
 
-        // Store value in moving average buffer
+        // Store value in circular moving average buffer
         velocity_buffer[velocity_index] = raw_velocity;
-        velocity_index = (velocity_index + 1) % FILTER_SIZE; // Circular buffer
+        velocity_index = (velocity_index + 1) % FILTER_SIZE;
 
         // Compute moving average
         float velocity_sum = 0;
         for (int i = 0; i < FILTER_SIZE; i++) {
             velocity_sum += velocity_buffer[i];
         }
-        // input_velocity = velocity_sum / FILTER_SIZE;  // Smoothed velocity
         average_velocity = velocity_sum / FILTER_SIZE;
 
         // PID-calculations           
@@ -505,27 +489,23 @@ void MPCWithPIDControl(float omega_x){
         output_velocity = K_p * error_velocity + K_i * PID_integral + K_d * PID_derivative;  
         previous_error_velocity = error_velocity; 
 
-        // motor_speed_MPC = ((convertToRadians(fabs(reference_velocity)) * elbow_radius * cos(convertToRadians(45-elbow_angle))) / linear_velocity);
-        // float numerator = fabs((d - r * sin_theta) * (r * cos_theta) + r * sin_theta * (h + r * cos_theta));
-        // float denominator = sqrt(pow((d - r * sin_theta), 2) + pow((h + r * cos_theta), 2));
-
         float theta = convertToRadians(elbow_angle+45);
         float sin_theta = sin(theta);
         float cos_theta = cos(theta);
 
         float numerator = fabs(
-            (30.0 - elbow_radius * sin_theta) * (elbow_radius * cos_theta) +
-            elbow_radius * sin_theta * (60.0 + elbow_radius * cos_theta)
+            (DISTANCE_AXIS_PIN - ELBOW_RADIUS * sin_theta) * (ELBOW_RADIUS * cos_theta) +
+            ELBOW_RADIUS * sin_theta * (DISTANCE_AXIS_MOTOR + ELBOW_RADIUS * cos_theta)
         );
 
         float denominator = sqrt(
-            pow((30.0 - elbow_radius * sin_theta), 2) +
-            pow((60.0 + elbow_radius * cos_theta), 2)
+            pow((DISTANCE_AXIS_PIN - ELBOW_RADIUS * sin_theta), 2) +
+            pow((DISTANCE_AXIS_MOTOR + ELBOW_RADIUS * cos_theta), 2)
         );
 
         float distance = numerator / denominator;
 
-        motor_speed_MPC = ((convertToRadians(fabs(reference_velocity)) * distance) / linear_velocity);
+        motor_speed_MPC = ((convertToRadians(fabs(reference_velocity)) * distance) / LINEAR_VELOCITY);
 
         if (input_velocity !=0){
             motor_speed = motor_speed_MPC + output_velocity;
@@ -537,29 +517,6 @@ void MPCWithPIDControl(float omega_x){
             disableMotor();
         }
 
-        // Print data
-        // sendDataToPcf("N: %4d, t: %6lu, dt: %lu, REF: %5.2f, ENC_RAW: %5d, dENC_RAW: %5.2f, ENC_DEG: %5.2f, VEL_RAW: %5.2f, VEL_AVG: %5.2f, VEL_ERR: %5.2f, I: %5.2f, D: %5.2f, Kp: %5.2f, Ki: %5.2f, Kd: %5.2f, VEL_OUT: %5.2f, VEL_MPC: %5.2f, MS: %5.2f",
-        // sendDataToPcf("N: %4d, t: %6lu, dt: %lu, REF: %5.2f, ENC_RAW: %5d, dENC_RAW: %5.2f, ENC_DEG: %5.2f, VEL_RAW: %5.2f, VEL_AVG: %5.2f, VEL_ERR: %5.2f, Kp: %5.2f, Ki: %5.2f, OX: %5.2f, VEL_OUT: %5.2f, VEL_MPC: %5.2f, MS: %5.2f",
-
-        //     log_counter,
-        //     PID_timestamp,
-        //     delta_PID_timestamp,
-        //     input_velocity,
-        //     encoder_value,
-        //     delta_encoder_value,
-        //     elbow_angle,
-        //     raw_velocity,
-        //     average_velocity,
-        //     error_velocity,
-        //     // PID_integral,
-        //     // PID_derivative,
-        //     K_p,
-        //     K_i,
-        //     // K_d,
-        //     omega_x,
-        //     output_velocity,
-        //     motor_speed_MPC,
-        //     motor_speed
         sendDataToPcf("N: %4d, t: %6lu, dt: %lu, ENC_DEG: %5.2f, REF: %5.2f, VEL_RAW: %5.2f, VEL_AVG: %5.2f, I: %5.2f, D: %5.2f, VEL_OUT: %5.2f, MS_MPC: %5.2f, ax: %5.2f, ay: %5.2f, az: %5.2f, gx: %5.2f, gy: %5.2f, gz: %5.2f, OX: %5.2f",
             log_counter,
             PID_timestamp,
@@ -568,12 +525,10 @@ void MPCWithPIDControl(float omega_x){
             input_velocity,
             raw_velocity,
             average_velocity,
-            // error_velocity,
             PID_integral,
             PID_derivative,
             output_velocity,
             motor_speed_MPC,
-            // motor_speed,
             acc[0],
             acc[1],
             acc[2],
@@ -600,11 +555,6 @@ void setup() {
     Serial.println("Setup completed");
     sendTextToPcf("Setup completed after %d ms!", millis()); 
     delay(500);
-    
-    // move_to_5_degrees();
-    // move_to_45_degrees();
-    // move_to_90_degrees();
-    // delay(1000);
 
     timer.attach(&timerInterrupt, std::chrono::milliseconds(20));
 
@@ -612,34 +562,7 @@ void setup() {
 }
 
 // continuous loop
-void loop() { //volgorde eventueel aanpassen
-
-    // float encoder_raw = encoder.angleR(ENCODER_RAW, true);
-    // float encoder_degrees = (encoder.angleR(ENCODER_DEGREES, true)-293.5)*-1;
-
-    // sendTextToPcf("raw: %7.2f, degrees: %7.2f", encoder_raw, encoder_degrees); 
-
-    // if (!encoder.begin()){
-    //     disableMotor();
-    //     emergency_stop = true;
-    //     Serial.println("Encoder failure!");
-    //     sendTextToPc("Encoder failure!");
-    //     return;
-    // }
-
-
-    // } && getPcInput() == "q") {
-    //     sendTextToPc("STOPPED BY USER");
-    //     disableMotor();
-    //     emergency_stop = true;
-    //     return;
-    // }
-
-    // if (pcHasWritten() && getPcInput() == "m") {
-    //     sendTextToPc("MOVING TO 5 DEGREES");
-    //     move_to_5_degrees();
-    //     delay(1000);
-    // }
+void loop() {
 
     if(emergency_stop){
         while(1){
@@ -648,7 +571,6 @@ void loop() { //volgorde eventueel aanpassen
             delay(1000);
         }
     } 
-
 
     // Read the IMU data
     IMU.readAcceleration(acc[0], acc[1], acc[2]);
@@ -680,15 +602,11 @@ void loop() { //volgorde eventueel aanpassen
             emergency_stop = true;
         } else if (getPcInput() == "m") {
             sendTextToPc("MOVING TO 5 DEGREES");
-            // noInterrupts();
             move_to_5_degrees(omega_x);
-            // interrupts();
-            // delay(1000);
         } else if (getPcInput() == "QUIT") {
             sendTextToPc("STOPPED BY PYTHON");
             disableMotor();
             emergency_stop = true;
         }
     }
-
 }
