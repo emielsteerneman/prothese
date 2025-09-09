@@ -1,6 +1,3 @@
-// Buigen is +12.5
-// Strekken is -12.5
-
 // libraries
 #include <ArduinoBLE.h>
 #include <Arduino_LSM9DS1.h>
@@ -52,7 +49,7 @@ float previous_encoder_value = 0;
 #define FILTER_SIZE 12  // Number of values for moving average
 double velocity_buffer[FILTER_SIZE] = {0};  
 int velocity_index = 0;  // Index for buffer
-double reference_velocity = 12.5;
+double reference_velocity = 12.5; // Positive = bend, negative = extend
 double input_velocity = 0;
 double output_velocity = 0; 
 double K_p = 10.0, K_i = 2.0, K_d = 10.0;  // Tuning parameters
@@ -132,9 +129,9 @@ void transformAccelerometerData(float& ax, float& ay, float& az){
 }
 
 void transformGyroscopeData(float& gx, float& gy, float& gz){
-    gx -= gx_offset; // / GYRO_SENSITIVITY;
-    gy -= gy_offset; // / GYRO_SENSITIVITY;
-    gz -= gz_offset; // / GYRO_SENSITIVITY;
+    gx -= gx_offset;
+    gy -= gy_offset;
+    gz -= gz_offset;
 
     float gx_transformed = transformation_matrix[0][0] * gx + transformation_matrix[0][1] * gy + transformation_matrix[0][2] * gz;
     float gy_transformed = transformation_matrix[1][0] * gx + transformation_matrix[1][1] * gy + transformation_matrix[1][2] * gz;
@@ -231,7 +228,7 @@ void move_to_5_degrees(float omega_x){
     }
 }
 
-void algorithm1(float& omega_x, float elbow_angle, float gx){ // moet gx niet een pointer worden?
+void algorithm1(float& omega_x, float elbow_angle, float gx){
     /* Algorithm 1
     When the arm is brought to roll > 20 degrees, the elbow angle will increase until the users removes it from this position.
     The arm can then move freely until gx is triggered or until it is back in this > 20 degrees position. 
@@ -239,14 +236,14 @@ void algorithm1(float& omega_x, float elbow_angle, float gx){ // moet gx niet ee
     If it stays in this position for longer than one second, the arm angle will increase again.
     A cooldownperiod of 0.5 seconds has been build in, to prevent the triggering of the roll right after gx has been triggered. */
 
-    if (gx < -100 && !omega_x_triggered) { // Check if gx is triggered
-        omega_x_triggered = true;  // Set the flag to true
+    if (gx < -100 && !omega_x_triggered) {
+        omega_x_triggered = true;
         omega_x_trigger_timestamp = millis(); 
     }
 
     if (omega_x_triggered){
         if (elbow_angle > 5) {
-            input_velocity = -fabs(reference_velocity);
+            input_velocity = -fabs(reference_velocity); // Extend
         }
 
         if ((millis() - omega_x_trigger_timestamp > OMEGA_X_COOLDOWN_PERIOD) && mahony.getRoll() > 20 ){
@@ -254,9 +251,9 @@ void algorithm1(float& omega_x, float elbow_angle, float gx){ // moet gx niet ee
             omega_x_triggered = false;
             roll_trigger_timestamp = millis(); 
         }
-    } else { //!gxTriggered
+    } else {
         if ((millis() - roll_trigger_timestamp > ROLL_COOLDOWN_PERIOD) &&mahony.getRoll() > 20 && elbow_angle < 88) {
-            input_velocity = fabs(reference_velocity);
+            input_velocity = fabs(reference_velocity); // Bend
         }else{
             input_velocity = 0;
         }
@@ -287,7 +284,7 @@ void algorithm2(float omega_x, float elbow_angle, float gx){
     if ((gx < OMEGA_X_EXTEND_THRESHOLD) && !extend_motor_running) {    
         // Ensure extra cooldown has passed before starting again
         if (millis() - extend_stop_timestamp > EXTRA_COOLDOWN_PERIOD) {
-            input_velocity = -fabs(reference_velocity);
+            input_velocity = -fabs(reference_velocity); // Extend
             omega_x_extend_trigger_timestamp = millis();
             extend_motor_running = true;  
             extend_cooldown_passed = false;        }
@@ -310,7 +307,7 @@ void algorithm2(float omega_x, float elbow_angle, float gx){
     if (gx > OMEGA_X_FLEX_THRESHOLD && !flex_motor_running) {  
         // Ensure extra cooldown has passed before starting again
         if (millis() - flex_stop_timestamp > EXTRA_COOLDOWN_PERIOD) {
-            input_velocity = fabs(reference_velocity);
+            input_velocity = fabs(reference_velocity); // Bend
             omega_x_flex_trigger_timestamp = millis();
             flex_motor_running = true;  
             flex_cooldown_passed = false;
@@ -468,8 +465,8 @@ void MPCWithPIDControl(float omega_x){
         float delta_encoder_timestamp = (encoder_timestamp - previous_encoder_timestamp) / 1000000.0; // Convert to seconds
         float raw_velocity = delta_elbow_angle / delta_encoder_timestamp;
 
-        previous_elbow_angle = elbow_angle; // update arm angle
-        previous_encoder_timestamp = encoder_timestamp; // update time
+        previous_elbow_angle = elbow_angle;
+        previous_encoder_timestamp = encoder_timestamp;
 
         // Store value in circular moving average buffer
         velocity_buffer[velocity_index] = raw_velocity;
@@ -588,8 +585,11 @@ void loop() {
 
     if(timer_interrupt){
         noInterrupts();
+        
+        // Choose between either algorithm 1 or algorithm 2
         algorithm1(omega_x, elbow_angle, gyr[0]);
         // algorithm2(omega_x, elbow_angle, gyr[0]);
+
         MPCWithPIDControl(omega_x);
         timer_interrupt = false;
         interrupts();

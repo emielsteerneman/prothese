@@ -24,7 +24,7 @@ async def writer_thread(filename):
             # Wait for data to enter the queue
             line = await QUEUE_WRITE.get() 
             
-            # If we placed a None in the queue, it means we want to stop
+            # If None is placed in the queue, it means stop
             if line is None:
                 print("[writer_thread] Stopping")
                 QUEUE_WRITE.task_done()
@@ -58,7 +58,7 @@ async def notification_handler(client, sender, data):
         time_diff = QUEUE_TIME[-1] - QUEUE_TIME[0]
         msg_rate = len(QUEUE_TIME) / time_diff
 
-    # send quit to arduino when message rate is lower than 30Hz
+    # Send quit to Arduino when message rate is lower than 20Hz
     if msg_rate > 1. and msg_rate < 20.:
         print(f"[Python ->  Arduino] Message rate too low: {msg_rate:.1f}Hz")
         await client.write_gatt_char(PC_TO_ARDUINO_UUID, "QUIT".encode())
@@ -112,8 +112,6 @@ async def main():
 
         # Subscribe to notifications
         print(f"[main] Subscribing to characteristic {ARDUINO_TO_PC_UUID}...")
-        # await asyncio.sleep(3)  # Give Arduino some time
-        # await client.start_notify(ARDUINO_TO_PC_UUID, lambda s, d: notification_handler(client, s, d))
         await client.start_notify(ARDUINO_TO_PC_UUID, lambda s, d: asyncio.create_task(notification_handler(client, s, d)))
 
         print("[main] Subscribed to notifications")
@@ -133,7 +131,6 @@ async def main():
 
     # Stop the writer thread
     await QUEUE_WRITE.put(None)
-    # await writer_task
 
     print("[main] All done!")
 
