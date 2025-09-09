@@ -26,9 +26,9 @@
 #define ENCODER_DEGREES 3 
 
 // objects
-mbed::Ticker timer; // Ticker object
-AMS_AS5048B encoder; // encoder object
-Mahony mahony; // Mahony object
+mbed::Ticker timer;
+AMS_AS5048B encoder;
+Mahony mahony;
 
 const float ENCODER_OFFSET = 66.51; // set value manually based on initial position of the arm
 
@@ -64,8 +64,6 @@ float average_velocity = 0;
 float motor_speed = 20000;
 const float MAX_SPEED = 31400.0;
 const float MIN_SPEED = 20000;
-bool check_for_noise = false;
-uint8_t turn_around_counter = 0;
 uint32_t log_counter = 0;
 
 // variables transformData
@@ -77,7 +75,6 @@ const unsigned long OMEGA_X_COOLDOWN_PERIOD = 500; // Cooldown period in millise
 unsigned long roll_trigger_timestamp = 0; // Stores the last time roll was triggered
 const unsigned long ROLL_COOLDOWN_PERIOD = 1000; // Cooldown period in milliseconds
 bool omega_x_triggered = false; // Stores the last time gx was triggered
-int motor_direction = 0; // 0 = flex, 1 = extend
 
 /* variables algorithm2 */
 const float OMEGA_X_EXTEND_THRESHOLD = -100;
@@ -255,40 +252,31 @@ void algorithm1(float& omega_x, float elbow_angle, float gx){ // moet gx niet ee
 
     if (omega_x_triggered){
         if (elbow_angle > 5) {
-            // motor_direction = 1; //target_arm_angle = 5;
             input_velocity = -fabs(reference_velocity);
-            // turnStepsPerSecond(motor_speed, motor_direction);
         }
 
-        if ((millis() - omega_x_trigger_timestamp > OMEGA_X_COOLDOWN_PERIOD) && mahony.getRoll() > 20 ){ //&& current_arm_angle < 85
+        if ((millis() - omega_x_trigger_timestamp > OMEGA_X_COOLDOWN_PERIOD) && mahony.getRoll() > 20 ){
             input_velocity = 0;
-            // disableMotor();//target_arm_angle = current_arm_angle;
             omega_x_triggered = false;
             roll_trigger_timestamp = millis(); 
         }
     } else { //!gxTriggered
-        if ((millis() - roll_trigger_timestamp > ROLL_COOLDOWN_PERIOD) &&mahony.getRoll() > 20 && elbow_angle < 88) { //&& current_arm_angle < 85 /* degrees */
-            // motor_direction = 0; //target_arm_angle += 0.5;
+        if ((millis() - roll_trigger_timestamp > ROLL_COOLDOWN_PERIOD) &&mahony.getRoll() > 20 && elbow_angle < 88) {
             input_velocity = fabs(reference_velocity);
-            // turnStepsPerSecond(motor_speed, motor_direction);
-
         }else{
-            // disableMotor();//target_arm_angle = current_arm_angle;
             input_velocity = 0;
         }
     } 
 
      // ANGLE-BASED CONDITIONS
      if (elbow_angle <= 5) {
-        if(input_velocity < 0){//motor_direction == 1
-            // disableMotor();
+        if(input_velocity < 0){
             input_velocity = 0;
         }
     }
 
     if (elbow_angle >= 88) {
-        if(input_velocity > 0){ //motor_direction == 0
-            // disableMotor();
+        if(input_velocity > 0){
             input_velocity = 0;
         }
     }
@@ -306,22 +294,19 @@ void algorithm2(float omega_x, float elbow_angle, float gx){
     if ((gx < OMEGA_X_EXTEND_THRESHOLD) && !extend_motor_running) {    
         // Ensure extra cooldown has passed before starting again
         if (millis() - extend_stop_timestamp > EXTRA_COOLDOWN_PERIOD) {
-            // motor_direction = 0;
             input_velocity = -fabs(reference_velocity);
-            // turnStepsPerSecond(motor_speed, motor_direction);
             omega_x_extend_trigger_timestamp = millis();
             extend_motor_running = true;  
             extend_cooldown_passed = false;        }
     }
 
     // Check if cooldown has passed
-    if (extend_motor_running && (millis() - omega_x_extend_trigger_timestamp > OMEGA_X_COOLDOWN_PERIOD)) { //
+    if (extend_motor_running && (millis() - omega_x_extend_trigger_timestamp > OMEGA_X_COOLDOWN_PERIOD)) {
         extend_cooldown_passed = true;
     }
 
     // Stop motor only if cooldown has passed AND gx is triggered again
     if (extend_cooldown_passed && gx < OMEGA_X_EXTEND_THRESHOLD) {
-        // disableMotor();
         input_velocity = 0;
         extend_motor_running = false;
         extend_cooldown_passed = false;
@@ -332,9 +317,7 @@ void algorithm2(float omega_x, float elbow_angle, float gx){
     if (gx > OMEGA_X_FLEX_THRESHOLD && !flex_motor_running) {  
         // Ensure extra cooldown has passed before starting again
         if (millis() - flex_stop_timestamp > EXTRA_COOLDOWN_PERIOD) {
-            // motor_direction = 1;
             input_velocity = fabs(reference_velocity);
-            // turnStepsPerSecond(motor_speed, motor_direction);
             omega_x_flex_trigger_timestamp = millis();
             flex_motor_running = true;  
             flex_cooldown_passed = false;
@@ -348,29 +331,24 @@ void algorithm2(float omega_x, float elbow_angle, float gx){
 
     // Stop motor only if cooldown has passed AND gx is triggered again
     if (flex_cooldown_passed && gx > OMEGA_X_FLEX_THRESHOLD) {
-        // disableMotor();
         input_velocity = 0;
         flex_motor_running = false;
         flex_cooldown_passed = false;
         flex_stop_timestamp = millis(); // Store stop time to enforce extra cooldown
     }
 
-
      // ANGLE-BASED CONDITIONS
      if (elbow_angle <= 5) {
-        if(input_velocity < 0){//motor_direction == 1
-            // disableMotor();
+        if(input_velocity < 0){
             input_velocity = 0;
         }
     }
 
     if (elbow_angle >= 88) {
-        if(input_velocity > 0){ //motor_direction == 0
-            // disableMotor();
+        if(input_velocity > 0){
             input_velocity = 0;
         }
     }
-
 }
 
 void setupIMU() {
