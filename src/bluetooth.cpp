@@ -6,13 +6,11 @@
 char send_buffer[SEND_BUFFER_SIZE] = {0};
 
 BLEDevice BLUETOOTH;
-
 // BlueTooth service and characteristics
 BLEService myService("12345678-1234-5678-1234-56789abcdef0"); // service UUID
 // https://docs.arduino.cc/libraries/arduinoble/#BLECharacteristic%20Class
 BLECharacteristic       ArduinoToPc("12345678-1234-5678-1234-56789abcdef1", BLERead | BLENotify, SEND_BUFFER_SIZE); // read and notify UUID
 BLEStringCharacteristic PcToArduino("12345678-1234-5678-1234-56789abcdef2", BLEWrite, RECEIVE_BUFFER_SIZE); // write UUID
-
 
 void setupBluetooth() {
     Serial.println("Beginning BLE!");
@@ -65,10 +63,9 @@ void sendTextToPc(const char* string){
     ArduinoToPc.writeValue(send_buffer, sizeof(send_buffer));
 }
 
-void sendTextToPcf(const char* format, ...){ //ehh moeten die va dingen ook zonder _?
+void sendTextToPcf(const char* format, ...){
     // Start by writing "TEXT" into the buffer
     sprintf(send_buffer, "TEXT");
-    // Do all the other magic string stuff that places the formatted string into the buffer
     va_list args;
     va_start(args, format);
     vsnprintf(send_buffer + 4, sizeof(send_buffer) - 4, format, args);
@@ -76,16 +73,6 @@ void sendTextToPcf(const char* format, ...){ //ehh moeten die va dingen ook zond
     // Send the buffer to the PC via Bluetooth
     ArduinoToPc.writeValue(send_buffer, sizeof(send_buffer));
 }
-
-// void send_data_to_pc_f(const char* format, ...){
-//     // Do all the magic string stuff that places the formatted string into the buffer
-//     va_list args;
-//     va_start(args, format);
-//     vsnprintf(send_buffer, sizeof(send_buffer), format, args);
-//     va_end(args);
-//     // Send the buffer to the PC via Bluetooth
-//     ArduinoToPc.writeValue(send_buffer, sizeof(send_buffer));
-// }
 
 void sendDataToPcf(const char* format, ...){
     va_list args;
