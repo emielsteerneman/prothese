@@ -108,7 +108,8 @@ print("Std per vraag Alg 2:", np.round(std_per_vraag_alg2, 2))
 print("SUS-verwerkte gemiddelde per vraag Alg 2:", np.round(sus_avg_per_vraag_alg2, 2))
 print("SUS-verwerkte std per vraag Alg 2:", np.round(sus_std_per_vraag_alg2, 2))
 
-
+print("Gemiddelde SUS score per persoon Alg 1:", np.round(scores_alg1, 2))
+print("Gemiddelde SUS score per persoon Alg 2:", np.round(scores_alg2, 2))
 
 # import numpy as np
 

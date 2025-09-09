@@ -16,7 +16,7 @@ import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
 
-name = "MartZoet"
+name = "BasvanderKaaden"
 algorithm = "Null"
 peaks_selected = True # als de pieken al geselecteerd zijn, zet dit op True
 seconds_before_peak = 1.5 # seconden voor de piek om naar te kijken
